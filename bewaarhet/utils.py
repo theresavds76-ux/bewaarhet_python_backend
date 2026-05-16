@@ -64,12 +64,12 @@ def is_generic_supplier_word(value: str | None) -> bool:
     generic_words = {
         'docs', 'document', 'documenten', 'bijlage', 'bestand', 'attachment',
         'factuur', 'invoice', 'bon', 'receipt', 'scan', 'foto', 'pagina', 'page',
-        'bericht', 'e-mail', 'email', 'berichten', 'huur', 'huurnota', 'nota',
+        'bericht', 'e-mail', 'email', 'berichten', 'img', 'image', 'huur', 'huurnota', 'nota',
         'wonen',
         'woningbouw', 'woningcorporatie', 'verhuurder', 'kapsalon', 'salon',
         'garage', 'autobedrijf', 'autoservice', 'energie', 'verzekering',
         'verzekeraar', 'abonnement', 'betaling', 'betaalinformatie',
-        'betalingsherinnering', 'certificaat', 'certificate'
+        'betalingsherinnering', 'certificaat', 'certificate', 'spa'
     }
     return value in generic_words
 
@@ -223,7 +223,16 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
             'services', 'groep', 'stichting', 'vereniging', 'dienst',
             'toeslagen', 'bv', 'nv', 'vof',
         }
-        for raw_line in (text or '').splitlines()[:12]:
+        raw_lines = (text or '').splitlines()[:12]
+        candidate_lines: list[str] = []
+        for index, raw_line in enumerate(raw_lines):
+            candidate_lines.append(raw_line)
+            if index + 1 < len(raw_lines):
+                next_line = raw_lines[index + 1].strip()
+                if next_line and len(next_line.split()) <= 3:
+                    candidate_lines.append(f'{raw_line} {next_line}')
+
+        for raw_line in candidate_lines:
             raw = raw_line.lower()
             if any(phrase in raw for phrase in blocked_line_phrases):
                 continue
@@ -366,6 +375,8 @@ def detect_invoice_customer(ocr_text: str) -> str:
         candidate = match.group(match.lastindex or 2).strip()
         cleaned = clean_filename(candidate)
         words = [w for w in cleaned.split('_') if w and not is_generic_supplier_word(w) and not is_month_name(w)]
+        while words and words[-1] in {'spa', 'salon', 'kapsalon'}:
+            words.pop()
         if not words or len(words) > 4:
             continue
         joined = '_'.join(words)
@@ -373,9 +384,41 @@ def detect_invoice_customer(ocr_text: str) -> str:
         is_upper_acronym = len(raw_words) == 1 and raw_words[0].isupper() and 2 <= len(raw_words[0]) <= 8
         has_business_marker = any(word in {'bv', 'b.v.', 'nv', 'vof', 'stichting', 'vereniging', 'groep'} for word in words)
         has_all_caps_token = any(token.isupper() and 2 <= len(token) <= 8 for token in raw_words)
-        if is_upper_acronym or has_business_marker or has_all_caps_token:
+        has_business_name_signal = '&' in candidate or any(word.lower() in {'nails', 'spa', 'salon', 'kapsalon', 'studio', 'garage', 'wonen'} for word in raw_words)
+        if is_upper_acronym or has_business_marker or has_all_caps_token or has_business_name_signal:
             return joined
     return ''
+
+
+def detect_certificate_filename_parts(ocr_text: str) -> list[str]:
+    """Extract manufacturer/model/product parts for compliance certificates."""
+    text = ocr_text or ''
+
+    def value_for(labels: list[str]) -> str:
+        for label in labels:
+            match = re.search(rf'(?im)^\s*{label}\s*[:\-]\s*(.+)$', text)
+            if match:
+                return match.group(1).strip()
+        return ''
+
+    maker = value_for(['manufacturer', 'fabrikant', 'trade mark', 'trademark', 'brand', 'merk'])
+    product = value_for(['product name', 'product', 'artikel'])
+    model = value_for(['model', 'type'])
+
+    maker_clean = clean_filename(maker)
+    maker_words = [
+        word.strip('.-') for word in maker_clean.split('_')
+        if word.strip('.-') and word.strip('.-') not in {'technology', 'technologies', 'co', 'ltd', 'limited', 'company', 'inc', 'bv', 'nv'}
+    ]
+    maker_part = '_'.join(maker_words[:2])
+
+    model_part = clean_filename(model).split('_')[0] if model else ''
+
+    product_clean = clean_filename(product)
+    product_words = [word for word in product_clean.split('_') if word and word not in {'product', 'device'}]
+    product_part = ''.join(product_words[:2]) if product_words[:2] == ['smart', 'lock'] else '_'.join(product_words[:2])
+
+    return [part for part in [maker_part, model_part, product_part] if part]
 
 
 def generate_filename(
@@ -405,9 +448,14 @@ def generate_filename(
 
     semantic_document_types = {
         'verzendlabel': 'verzendlabel',
+        'coc': 'coc',
         'ce_certificaat': 'ce_certificaat',
         'certificaat': 'certificaat',
         'compliance_certificaat': 'compliance_certificaat',
+        'offerte': 'offerte',
+        'polis': 'polis',
+        'aankoopbewijs': 'aankoopbewijs',
+        'garantiebewijs': 'garantiebewijs',
     }
     if purpose in semantic_document_types:
         document_type = semantic_document_types[purpose]
@@ -447,6 +495,13 @@ def generate_filename(
         display_date = f'{d}-{m}-{y}'
     except Exception:
         display_date = document_date
+
+    if purpose == 'coc':
+        certificate_parts = detect_certificate_filename_parts(ocr_text)
+        parts = [document_type] + (certificate_parts or [supplier])
+        parts.append(display_date)
+        filename = '_'.join(parts) + extension
+        return clean_filename(filename), document_date
 
     parts = [document_type, supplier]
     # Avoid adding duplicate purpose when it matches the document type or is generic
@@ -505,12 +560,15 @@ def detect_purpose(ocr_text: str, subject: str) -> str:
     if 'betaalinformatie' in text or ('belastingdienst' in text and any(k in text for k in ['rekeningnummer', 'iban', 'termijn', 'betalen'])):
         return 'betaling'
 
+    if any(k in text for k in ['offerte', 'quotation', 'quote number', 'offertenummer']):
+        return 'offerte'
+
     if any(k in text for k in ['verzendlabel', 'pakketlabel', 'brievenbuspakje', 'track & trace', 'track trace']):
         return 'verzendlabel'
 
-    if any(k in text for k in ['certificate of compliance', 'declaration of conformity', 'product certificate']):
-        if ' ce ' in f' {text} ' or '\nce\n' in text or 'certificate of compliance' in text:
-            return 'ce_certificaat'
+    if 'certificate of compliance' in text:
+        return 'coc'
+    if any(k in text for k in ['declaration of conformity', 'product certificate']):
         return 'compliance_certificaat'
     if any(k in text for k in ['ce certificaat', 'ce certificate', 'certificaat ce']):
         return 'ce_certificaat'
@@ -524,10 +582,16 @@ def detect_purpose(ocr_text: str, subject: str) -> str:
         return 'huur'
     if any(k in text for k in ['energienota', 'energiecontract', 'jaarafrekening energie', 'termijnbedrag energie']):
         return 'energie'
-    if any(k in text for k in ['polisblad', 'verzekeringspolis', 'verzekeringspremie', 'premie verzekering']):
+    if any(k in text for k in ['polisblad', 'verzekeringspolis', 'polisnummer']):
+        return 'polis'
+    if any(k in text for k in ['verzekeringspremie', 'premie verzekering']):
         return 'verzekering'
     if any(k in text for k in ['abonnement', 'maandabonnement', 'lidmaatschap']):
         return 'abonnement'
+    if any(k in text for k in ['aankoopbewijs', 'proof of purchase', 'purchase receipt']):
+        return 'aankoopbewijs'
+    if any(k in text for k in ['garantiebewijs', 'warranty certificate', 'garantiecertificaat']):
+        return 'garantiebewijs'
 
     strong_aanmaning_terms = [
         'aanmaning',

@@ -154,7 +154,8 @@ print("TEST CASE 4b: Cazas Wonen Huurnota")
 print("â–ˆ"*80)
 
 ocr_4b = """
-Cazas Wonen
+Cazas
+Wonen
 Huurnota
 
 Factuurdatum: 01-11-2025
@@ -268,9 +269,9 @@ assert domain4e == 'belasting', f"Domain should be belasting, got {domain4e}"
 assert fn4e == 'belasting_belastingdienst_betalingsherinnering_16-05-2026.jpeg', f"Unexpected filename: {fn4e}"
 
 
-# Test Case 4f: CE Certificate of Compliance with random filename
+# Test Case 4f: Certificate of Compliance with random filename
 print("\n\n" + "â–ˆ"*80)
-print("TEST CASE 4f: CE Certificate of Compliance")
+print("TEST CASE 4f: Certificate of Compliance")
 print("â–ˆ"*80)
 
 ocr_4f = """
@@ -283,19 +284,19 @@ Declaration of Conformity
 """
 
 cat4f, sup4f, pur4f, fn4f = test_case(
-    "CE Certificate of Compliance",
+    "Certificate of Compliance",
     ocr_4f,
     "7eeba915-3a9b-4f2c-8d1e-abcdef123456.jpg",
     "",
     date_received='2026-05-16',
 )
 
-print(f"\nEXPECTED: category=overig, supplier=qishengda_technology, purpose=ce_certificaat")
+print(f"\nEXPECTED: category=overig, supplier=qishengda_technology, purpose=coc")
 print(f"ACTUAL: category={cat4f}, supplier={sup4f}, purpose={pur4f}, filename={fn4f}")
 assert cat4f == 'overig', f"Category should be overig, got {cat4f}"
 assert sup4f.startswith('qishengda'), f"Supplier should start with qishengda, got {sup4f}"
-assert pur4f == 'ce_certificaat', f"Purpose should be ce_certificaat, got {pur4f}"
-assert fn4f.startswith('ce_certificaat_qishengda'), f"Filename should be semantic CE certificate, got {fn4f}"
+assert pur4f == 'coc', f"Purpose should be coc, got {pur4f}"
+assert fn4f == 'coc_qishengda_d2_smartlock_16-05-2026.jpg', f"Filename should be semantic COC certificate, got {fn4f}"
 assert '7eeba915' not in fn4f, f"Filename should not use random stem, got {fn4f}"
 
 
@@ -377,6 +378,34 @@ print(f"\nEXPECTED: category=facturen, filename uses customer WSD")
 print(f"ACTUAL: category={cat4i}, supplier={sup4i}, purpose={pur4i}, filename={fn4i}")
 assert cat4i == 'facturen', f"Category should be facturen, got {cat4i}"
 assert fn4i == 'factuur_wsd_20-01-2026.pdf', f"Filename should use WSD customer, got {fn4i}"
+
+
+# Test Case 4j: Outgoing invoice with clear customer B Nails & Spa
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4j: Verkoopfactuur Klant B Nails & Spa")
+print("â–ˆ"*80)
+
+ocr_4j = """
+You and I
+Goods & Service
+Invoice
+Invoice Date: 13-08-2025
+Klant: B Nails & Spa
+Services rendered
+Total: EUR 45.00
+"""
+
+cat4j, sup4j, pur4j, fn4j = test_case(
+    "Verkoopfactuur Klant B Nails & Spa",
+    ocr_4j,
+    "factuur Goods Service.pdf",
+    "Invoice from Goods Service",
+)
+
+print(f"\nEXPECTED: category=facturen, filename uses customer B Nails")
+print(f"ACTUAL: category={cat4j}, supplier={sup4j}, purpose={pur4j}, filename={fn4j}")
+assert cat4j == 'facturen', f"Category should be facturen, got {cat4j}"
+assert fn4j == 'factuur_b_nails_13-08-2025.pdf', f"Filename should use B Nails customer, got {fn4j}"
 
 
 # Test Case 5: ING Bank Statement (should be ing, not payment context)
