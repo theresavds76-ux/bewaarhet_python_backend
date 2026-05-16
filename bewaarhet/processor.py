@@ -18,6 +18,7 @@ from .utils import (
     safe_customer_folder,
     detect_supplier,
     detect_purpose,
+    detect_domain,
 )
 
 
@@ -87,10 +88,14 @@ def process_upload_mail(mail: IncomingMail) -> None:
             mail.body_text[:500],
         )
 
-        print(f"Categorie: {category}")
-
         supplier = detect_supplier(ocr_text, mail.subject, att.filename, mail.from_email)
         purpose = detect_purpose(ocr_text, mail.subject)
+        domain = detect_domain(ocr_text, mail.subject, att.filename, supplier, purpose)
+
+        print(f"category={category}")
+        print(f"supplier={supplier}")
+        print(f"purpose={purpose}")
+        print(f"domain={domain}")
 
         new_filename, document_date = generate_filename(
             category,
@@ -117,6 +122,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
             'filename': new_filename,
             'original_filename': att.filename,
             'document_date': document_date,
+            'domain': domain,
             'date_received': date_received,
             'dropbox_path': path,
             'ocr_preview': ocr_text[:200],

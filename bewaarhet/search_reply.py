@@ -11,7 +11,8 @@ from .utils import html_escape
 
 def _score(row, query: str) -> int:
     haystack = ' '.join([
-        row['filename'] or '', row['category'] or '', row['ocr_preview'] or '', row['year'] or '', row['month'] or ''
+        row['filename'] or '', row['category'] or '', row['domain'] or '',
+        row['ocr_preview'] or '', row['year'] or '', row['month'] or ''
     ]).lower()
     return int(fuzz.partial_ratio(query.lower(), haystack))
 
@@ -45,6 +46,7 @@ def send_search_results(customer_email: str, query: str) -> None:
             <div style="padding:12px; border:1px solid #dddddd; border-radius:8px; background:#f7f7f7; margin-bottom:10px;">
                 <b>{html_escape(row['filename'])}</b><br>
                 Categorie: {html_escape(row['category'])}<br>
+                Domein: {html_escape(row['domain'] or 'overig')}<br>
                 Datum: {html_escape(row['date_received'])}<br>
                 Relevantie: <b>{score}%</b><br>
                 <a href="{html_escape(link)}">Download document</a>

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS documents (
     dropbox_path TEXT NOT NULL,
     original_filename TEXT DEFAULT '',
     document_date TEXT DEFAULT '',
+    domain TEXT DEFAULT '',
     ocr_preview TEXT DEFAULT '',
     ocr_text TEXT DEFAULT '',
     year TEXT DEFAULT '',
@@ -38,29 +39,38 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def _ensure_documents_columns(conn: sqlite3.Connection) -> None:
+    existing_columns = {row['name'] for row in conn.execute("PRAGMA table_info(documents)")}
+    if 'original_filename' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN original_filename TEXT DEFAULT ''")
+    if 'document_date' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN document_date TEXT DEFAULT ''")
+    if 'domain' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN domain TEXT DEFAULT ''")
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
-        existing_columns = {row['name'] for row in conn.execute("PRAGMA table_info(documents)")}
-        if 'original_filename' not in existing_columns:
-            conn.execute("ALTER TABLE documents ADD COLUMN original_filename TEXT DEFAULT ''")
-        if 'document_date' not in existing_columns:
-            conn.execute("ALTER TABLE documents ADD COLUMN document_date TEXT DEFAULT ''")
+        _ensure_documents_columns(conn)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_domain_search ON documents(customer_email, domain)")
 
 
 def add_document(record: dict) -> None:
     with connect() as conn:
+        _ensure_documents_columns(conn)
         conn.execute(
             '''
             INSERT OR REPLACE INTO documents
             (customer_email, safe_customer_folder, category, filename, date_received,
-             dropbox_path, original_filename, document_date, ocr_preview, ocr_text, year, month)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             dropbox_path, original_filename, document_date, domain, ocr_preview, ocr_text, year, month)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 record['customer_email'], record['safe_customer_folder'], record['category'],
                 record['filename'], record['date_received'], record['dropbox_path'],
                 record.get('original_filename', ''), record.get('document_date', ''),
+                record.get('domain', ''),
                 record.get('ocr_preview', ''), record.get('ocr_text', ''),
                 record.get('year', ''), record.get('month', ''),
             ),
@@ -69,7 +79,15 @@ def add_document(record: dict) -> None:
 
 SYNONYM_GROUPS = [
     {'belasting', 'btw', 'aangifte', 'belastingdienst', 'aanslag', 'loonheffing', 'omzetbelasting'},
-    {'woningbouw', 'huur', 'woningcorporatie', 'huurcontract'},
+    {'wonen', 'woning', 'huis', 'huur', 'woningbouw', 'woningcorporatie', 'huurcontract'},
+    {'zorg', 'tandarts', 'huisarts', 'apotheek', 'ziekenhuis', 'fysiotherapeut', 'zorgverzekering'},
+    {'verzekeringen', 'verzekering', 'verzekeraar', 'polis', 'premie', 'schadeclaim'},
+    {'auto', 'garage', 'apk', 'kenteken', 'voertuig', 'autoverzekering'},
+    {'kinderen', 'school', 'kinderopvang', 'bso', 'ouderbijdrage', 'lesgeld'},
+    {'werk', 'loonstrook', 'salarisstrook', 'werkgever', 'jaaropgave', 'uwv'},
+    {'garantie', 'aankoopbewijs', 'serienummer', 'retour', 'reparatie'},
+    {'abonnementen', 'abonnement', 'telecom', 'streaming', 'lidmaatschap'},
+    {'financien', 'bank', 'bankafschrift', 'rekeningafschrift', 'lening', 'hypotheek', 'creditcard'},
     {'schoonheidssalon', 'nagels', 'manicure', 'beauty', 'salon'},
 ]
 
@@ -97,9 +115,9 @@ def search_documents(customer_email: str, query: str, limit: int = 10) -> list[s
     for term in terms:
         like = f'%{term}%'
         search_parts.append(
-            '(lower(filename) LIKE ? OR lower(category) LIKE ? OR lower(ocr_preview) LIKE ? OR lower(ocr_text) LIKE ? OR year LIKE ? OR month LIKE ?)'
+            '(lower(filename) LIKE ? OR lower(category) LIKE ? OR lower(domain) LIKE ? OR lower(ocr_preview) LIKE ? OR lower(ocr_text) LIKE ? OR year LIKE ? OR month LIKE ?)'
         )
-        params.extend([like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like])
 
     sql = f'''
         SELECT * FROM documents
@@ -114,4 +132,5 @@ def search_documents(customer_email: str, query: str, limit: int = 10) -> list[s
     params.append(limit)
 
     with connect() as conn:
+        _ensure_documents_columns(conn)
         return list(conn.execute(sql, params))
