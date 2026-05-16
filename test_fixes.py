@@ -408,6 +408,60 @@ assert cat4j == 'facturen', f"Category should be facturen, got {cat4j}"
 assert fn4j == 'factuur_b_nails_13-08-2025.pdf', f"Filename should use B Nails customer, got {fn4j}"
 
 
+# Test Case 4k: Semantic offerte filename from IMG file
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4k: Semantic Offerte Filename")
+print("â–ˆ"*80)
+
+ocr_4k = """
+Garage Jansen
+Offerte
+Offertenummer: O-2026-014
+Datum: 17-05-2026
+Onderhoudsbeurt en APK
+"""
+
+cat4k, sup4k, pur4k, fn4k = test_case(
+    "Semantic Offerte Filename",
+    ocr_4k,
+    "IMG_7777.jpg",
+    "",
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: purpose=offerte, filename=offerte_garage_jansen_17-05-2026.jpg")
+print(f"ACTUAL: category={cat4k}, supplier={sup4k}, purpose={pur4k}, filename={fn4k}")
+assert pur4k == 'offerte', f"Purpose should be offerte, got {pur4k}"
+assert fn4k == 'offerte_garage_jansen_17-05-2026.jpg', f"Unexpected filename: {fn4k}"
+
+
+# Test Case 4l: Semantic polis filename from image file
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4l: Semantic Polis Filename")
+print("â–ˆ"*80)
+
+ocr_4l = """
+ANWB Verzekering
+Polisblad
+Polisnummer: P-123456
+Datum: 17-05-2026
+Autoverzekering
+"""
+
+cat4l, sup4l, pur4l, fn4l = test_case(
+    "Semantic Polis Filename",
+    ocr_4l,
+    "image_8888.jpeg",
+    "",
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: purpose=polis, filename=polis_anwb_verzekering_17-05-2026.jpeg")
+print(f"ACTUAL: category={cat4l}, supplier={sup4l}, purpose={pur4l}, filename={fn4l}")
+assert pur4l == 'polis', f"Purpose should be polis, got {pur4l}"
+assert fn4l == 'polis_anwb_verzekering_17-05-2026.jpeg', f"Unexpected filename: {fn4l}"
+
+
 # Test Case 5: ING Bank Statement (should be ing, not payment context)
 print("\n\n" + "█"*80)
 print("TEST CASE 5: ING Bank Statement")
