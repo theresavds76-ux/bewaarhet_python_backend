@@ -5,12 +5,20 @@ from email.utils import parsedate_to_datetime
 
 from .classifier import classify_document
 from .config import settings
-from .database import add_document
+from .database import add_document, connect
 from .dropbox_client import upload_file
 from .mail_client import Attachment, IncomingMail, mark_as_seen
 from .ocr import ocr_space
 from .search_reply import send_search_results
-from .utils import extract_search_text, file_extension, generate_filename, is_probable_search_email, safe_customer_folder
+from .utils import (
+    extract_search_text,
+    file_extension,
+    generate_filename,
+    is_probable_search_email,
+    safe_customer_folder,
+    detect_supplier,
+    detect_purpose,
+)
 
 
 def _received_parts(mail: IncomingMail) -> tuple[str, str, str]:
@@ -23,6 +31,29 @@ def _received_parts(mail: IncomingMail) -> tuple[str, str, str]:
 
 def _dropbox_path(customer: str, category: str, filename: str) -> str:
     return f'{settings.dropbox_base_path}/{customer}/{category}/{filename}'
+
+
+def _filename_exists(customer: str, category: str, filename: str) -> bool:
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT 1 FROM documents WHERE safe_customer_folder = ? AND category = ? AND filename = ? LIMIT 1',
+            (customer, category, filename),
+        ).fetchone()
+        return bool(row)
+
+
+def _resolve_filename_collision(customer: str, category: str, filename: str) -> str:
+    from pathlib import Path
+
+    path = Path(filename)
+    base = path.stem
+    ext = path.suffix
+    candidate = filename
+    counter = 1
+    while _filename_exists(customer, category, candidate):
+        candidate = f'{base}_{counter}{ext}'
+        counter += 1
+    return candidate
 
 
 def _is_allowed(att: Attachment) -> bool:
@@ -58,13 +89,20 @@ def process_upload_mail(mail: IncomingMail) -> None:
 
         print(f"Categorie: {category}")
 
-        new_filename = generate_filename(
-        category,
-        att.filename,
-        ocr_text,
-        date_received,
-        mail.subject,
+        supplier = detect_supplier(ocr_text, mail.subject, att.filename, mail.from_email)
+        purpose = detect_purpose(ocr_text, mail.subject)
+
+        new_filename, document_date = generate_filename(
+            category,
+            att.filename,
+            ocr_text,
+            date_received,
+            mail.subject,
+            supplier=supplier,
+            purpose=purpose,
         )
+
+        new_filename = _resolve_filename_collision(customer, category, new_filename)
 
         path = _dropbox_path(customer, category, new_filename)
         upload_file(att.content, path)
@@ -77,6 +115,8 @@ def process_upload_mail(mail: IncomingMail) -> None:
             'safe_customer_folder': customer,
             'category': category,
             'filename': new_filename,
+            'original_filename': att.filename,
+            'document_date': document_date,
             'date_received': date_received,
             'dropbox_path': path,
             'ocr_preview': ocr_text[:200],

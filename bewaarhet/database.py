@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS documents (
     filename TEXT NOT NULL,
     date_received TEXT NOT NULL,
     dropbox_path TEXT NOT NULL,
+    original_filename TEXT DEFAULT '',
+    document_date TEXT DEFAULT '',
     ocr_preview TEXT DEFAULT '',
     ocr_text TEXT DEFAULT '',
     year TEXT DEFAULT '',
@@ -39,6 +41,11 @@ def connect() -> sqlite3.Connection:
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        existing_columns = {row['name'] for row in conn.execute("PRAGMA table_info(documents)")}
+        if 'original_filename' not in existing_columns:
+            conn.execute("ALTER TABLE documents ADD COLUMN original_filename TEXT DEFAULT ''")
+        if 'document_date' not in existing_columns:
+            conn.execute("ALTER TABLE documents ADD COLUMN document_date TEXT DEFAULT ''")
 
 
 def add_document(record: dict) -> None:
@@ -47,22 +54,42 @@ def add_document(record: dict) -> None:
             '''
             INSERT OR REPLACE INTO documents
             (customer_email, safe_customer_folder, category, filename, date_received,
-             dropbox_path, ocr_preview, ocr_text, year, month)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             dropbox_path, original_filename, document_date, ocr_preview, ocr_text, year, month)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 record['customer_email'], record['safe_customer_folder'], record['category'],
                 record['filename'], record['date_received'], record['dropbox_path'],
+                record.get('original_filename', ''), record.get('document_date', ''),
                 record.get('ocr_preview', ''), record.get('ocr_text', ''),
                 record.get('year', ''), record.get('month', ''),
             ),
         )
 
 
+SYNONYM_GROUPS = [
+    {'belasting', 'btw', 'aangifte', 'belastingdienst', 'aanslag', 'loonheffing', 'omzetbelasting'},
+    {'woningbouw', 'huur', 'woningcorporatie', 'huurcontract'},
+    {'schoonheidssalon', 'nagels', 'manicure', 'beauty', 'salon'},
+]
+
+
+def _expand_search_terms(terms: list[str]) -> list[str]:
+    expanded: set[str] = set()
+    for term in terms:
+        expanded.add(term)
+        for group in SYNONYM_GROUPS:
+            if term in group:
+                expanded.update(group)
+    return sorted(expanded)
+
+
 def search_documents(customer_email: str, query: str, limit: int = 10) -> list[sqlite3.Row]:
     terms = [t.lower() for t in query.split() if len(t) > 1]
     if not terms:
         terms = [query.lower()]
+
+    terms = _expand_search_terms(terms)
 
     search_parts = []
     params: list[str] = [customer_email.lower()]
