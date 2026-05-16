@@ -65,11 +65,35 @@ def is_generic_supplier_word(value: str | None) -> bool:
         'docs', 'document', 'documenten', 'bijlage', 'bestand', 'attachment',
         'factuur', 'invoice', 'bon', 'receipt', 'scan', 'foto', 'pagina', 'page',
         'bericht', 'e-mail', 'email', 'berichten', 'huur', 'huurnota', 'nota',
+        'wonen',
         'woningbouw', 'woningcorporatie', 'verhuurder', 'kapsalon', 'salon',
         'garage', 'autobedrijf', 'autoservice', 'energie', 'verzekering',
-        'verzekeraar', 'abonnement'
+        'verzekeraar', 'abonnement', 'betaling', 'betaalinformatie',
+        'betalingsherinnering', 'certificaat', 'certificate'
     }
     return value in generic_words
+
+
+def has_meaningful_supplier_part(value: str | None) -> bool:
+    if not value:
+        return False
+    return any(part and not is_generic_supplier_word(part) for part in value.split('_'))
+
+
+def is_randomish_filename_stem(value: str | None) -> bool:
+    """Detect camera/random/hash-like filenames that should not become suppliers."""
+    if not value:
+        return True
+    stem = clean_filename(Path(value).stem)
+    if not stem:
+        return True
+    if re.fullmatch(r'img_\d{3,}|dsc_\d{3,}|image_\d{3,}|photo_\d{3,}', stem):
+        return True
+    if re.fullmatch(r'[0-9a-f]{8,}(-[0-9a-f]{4,})*', stem):
+        return True
+    if re.fullmatch(r'[a-z0-9]{12,}', stem) and re.search(r'\d', stem):
+        return True
+    return False
 
 
 def is_month_name(value: str | None) -> bool:
@@ -131,6 +155,9 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
         # require explicit mention of Belastingdienst (not just 'btw')
         return 'belastingdienst'
 
+    if 'dienst toeslagen' in header:
+        return 'dienst_toeslagen'
+
     # Known supplier keywords. These are checked before generic header extraction
     # so real brands win over descriptive OCR lines.
     supplier_keywords = {
@@ -153,6 +180,8 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
         'abn': ['abn amro', 'abn'],
         'bunq': ['bunq'],
         'paypal': ['paypal'],
+        'dhl': ['dhl'],
+        'dpd': ['dpd'],
     }
 
     # Helper to check whole-word matches (for bank names especially)
@@ -211,9 +240,35 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
                 continue
             if not any(word in organization_markers for word in words):
                 continue
-            if not any(not is_generic_supplier_word(word) and word not in organization_markers for word in words):
+            if not any(not is_generic_supplier_word(word) for word in words):
                 continue
             return '_'.join(words)
+        return ''
+
+    def clean_organization_candidate(value: str) -> str:
+        cleaned = clean_filename(value)
+        legal_suffixes = {'bv', 'b.v.', 'nv', 'n.v.', 'ltd', 'limited', 'co', 'company', 'inc'}
+        words = []
+        for word in cleaned.split('_'):
+            word = word.strip('.-')
+            if not word or word in legal_suffixes or is_generic_supplier_word(word) or is_month_name(word):
+                continue
+            words.append(word)
+        if not words:
+            return ''
+        return '_'.join(words[:3])
+
+    def detect_labeled_supplier(text: str) -> str:
+        label_patterns = [
+            r'(?im)^\s*(manufacturer|fabrikant|supplier|leverancier|issued by|producent)\s*[:\-]\s*(.+)$',
+        ]
+        for pattern in label_patterns:
+            match = re.search(pattern, text or '')
+            if not match:
+                continue
+            candidate = clean_organization_candidate(match.group(2))
+            if candidate and has_meaningful_supplier_part(candidate):
+                return candidate
         return ''
 
     # Check header first for strong matches
@@ -242,6 +297,10 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
             if is_generic_supplier_word(kw):
                 continue
             return name
+
+    labeled_supplier = detect_labeled_supplier(ocr_text or '')
+    if labeled_supplier:
+        return labeled_supplier
 
     named_supplier = detect_named_supplier_from_header(header)
     if named_supplier:
@@ -276,7 +335,7 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
 
     # Subject or filename hint - extract supplier from filename if not generic
     # First try: clean filename (remove generic words, month names)
-    if original_filename:
+    if original_filename and not is_randomish_filename_stem(original_filename):
         filename_stem = Path(original_filename).stem
         # Clean: remove generic file-related words
         cleaned = clean_filename(filename_stem)
@@ -293,6 +352,31 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
         return subject_hint
     
     return 'onbekend'
+
+
+def detect_invoice_customer(ocr_text: str) -> str:
+    """Return a clearly marked invoice customer, only when it looks business-like."""
+    for pattern in [
+        r'(?im)^\s*(klant|customer|debiteur|bill to|invoice to)\s*[:\-]\s*(.+)$',
+        r'(?im)^\s*(klantgegevens|customer details)\s*[:\-]?\s*$\s*^(.+)$',
+    ]:
+        match = re.search(pattern, ocr_text or '')
+        if not match:
+            continue
+        candidate = match.group(match.lastindex or 2).strip()
+        cleaned = clean_filename(candidate)
+        words = [w for w in cleaned.split('_') if w and not is_generic_supplier_word(w) and not is_month_name(w)]
+        if not words or len(words) > 4:
+            continue
+        joined = '_'.join(words)
+        raw_words = re.findall(r'[A-Za-z0-9&.-]+', candidate)
+        is_upper_acronym = len(raw_words) == 1 and raw_words[0].isupper() and 2 <= len(raw_words[0]) <= 8
+        has_business_marker = any(word in {'bv', 'b.v.', 'nv', 'vof', 'stichting', 'vereniging', 'groep'} for word in words)
+        has_all_caps_token = any(token.isupper() and 2 <= len(token) <= 8 for token in raw_words)
+        if is_upper_acronym or has_business_marker or has_all_caps_token:
+            return joined
+    return ''
+
 
 def generate_filename(
     category: str,
@@ -319,9 +403,18 @@ def generate_filename(
 
     document_type = document_types.get(category, 'document')
 
+    semantic_document_types = {
+        'verzendlabel': 'verzendlabel',
+        'ce_certificaat': 'ce_certificaat',
+        'certificaat': 'certificaat',
+        'compliance_certificaat': 'compliance_certificaat',
+    }
+    if purpose in semantic_document_types:
+        document_type = semantic_document_types[purpose]
+
     # Supplier provided explicitly (from detect_supplier)
     # Normalize and validate supplier
-    if not supplier or is_generic_supplier_word(supplier):
+    if not supplier or is_generic_supplier_word(supplier) or not has_meaningful_supplier_part(supplier):
         supplier = 'onbekend'
     
     # Transform: 'huur' -> 'woningbouw' since huur is a purpose, not a supplier
@@ -332,11 +425,21 @@ def generate_filename(
     # Filter out month names from supplier (they may have leaked in from detect_supplier)
     if supplier and supplier != 'onbekend':
         supplier_parts = supplier.split('_')
-        filtered_parts = [p for p in supplier_parts if p and not is_month_name(p) and not is_generic_supplier_word(p)]
+        if len(supplier_parts) > 1:
+            filtered_parts = [p for p in supplier_parts if p and not is_month_name(p)]
+        else:
+            filtered_parts = [p for p in supplier_parts if p and not is_month_name(p) and not is_generic_supplier_word(p)]
         if filtered_parts:
             supplier = '_'.join(filtered_parts)
         else:
             supplier = 'onbekend'
+
+    customer = detect_invoice_customer(ocr_text)
+    if category == 'facturen' and customer:
+        supplier = customer
+
+    if category == 'overig' and not purpose and supplier == 'onbekend' and is_randomish_filename_stem(original_filename):
+        supplier = clean_filename(Path(original_filename).stem) or supplier
 
     # Format date for filename as DD-MM-YYYY
     try:
@@ -376,6 +479,9 @@ def detect_purpose(ocr_text: str, subject: str) -> str:
         'betaalregeling',
         'verzoek om een betalingsregeling',
         'verzoek om betalingsregeling',
+        'bedrag per maand',
+        'in termijnen',
+        'termijnen',
     ]
     extreme_collection_terms = [
         'sommatie',
@@ -393,6 +499,23 @@ def detect_purpose(ocr_text: str, subject: str) -> str:
 
     if 'aangifte' in text or 'belastingaangifte' in text:
         return 'aangifte'
+
+    if 'betalingsherinnering' in text:
+        return 'betalingsherinnering'
+    if 'betaalinformatie' in text or ('belastingdienst' in text and any(k in text for k in ['rekeningnummer', 'iban', 'termijn', 'betalen'])):
+        return 'betaling'
+
+    if any(k in text for k in ['verzendlabel', 'pakketlabel', 'brievenbuspakje', 'track & trace', 'track trace']):
+        return 'verzendlabel'
+
+    if any(k in text for k in ['certificate of compliance', 'declaration of conformity', 'product certificate']):
+        if ' ce ' in f' {text} ' or '\nce\n' in text or 'certificate of compliance' in text:
+            return 'ce_certificaat'
+        return 'compliance_certificaat'
+    if any(k in text for k in ['ce certificaat', 'ce certificate', 'certificaat ce']):
+        return 'ce_certificaat'
+    if 'certificaat' in text or 'certificate' in text:
+        return 'certificaat'
     
     # Specific domain/purpose signals come before dunning-like wording.
     if 'huurnota' in text or ('huur' in text and 'nota' in text):

@@ -4,7 +4,7 @@
 from bewaarhet.classifier import classify_document
 from bewaarhet.utils import detect_supplier, detect_purpose, detect_domain, generate_filename
 
-def test_case(name, ocr_text, filename, subject, sender_email='test@test.com'):
+def test_case(name, ocr_text, filename, subject, sender_email='test@test.com', date_received='2025-08-13'):
     """Test a single case and print results."""
     print(f"\n{'='*80}")
     print(f"TEST: {name}")
@@ -18,7 +18,7 @@ def test_case(name, ocr_text, filename, subject, sender_email='test@test.com'):
     supplier = detect_supplier(ocr_text, subject, filename, sender_email)
     purpose = detect_purpose(ocr_text, subject)
     new_filename, doc_date = generate_filename(
-        category, filename, ocr_text, '2025-08-13', subject, supplier, purpose
+        category, filename, ocr_text, date_received, subject, supplier, purpose
     )
     
     print(f"Category: {category}")
@@ -233,6 +233,150 @@ assert fn4d in {
     'belasting_belastingdienst_betalingsregeling_16-05-2026.jpg',
     'belasting_dienst_toeslagen_betalingsregeling_16-05-2026.jpg',
 }, f"Unexpected filename: {fn4d}"
+
+
+# Test Case 4e: Belastingdienst betaalinformatie / betalingsherinnering
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4e: Belastingdienst Betalingsherinnering")
+print("â–ˆ"*80)
+
+ocr_4e = """
+Belastingdienst
+
+Betaalinformatie
+Betalingsherinnering belastingaanslag
+Datum: 16-05-2026
+Termijn: 1
+Rekeningnummer/IBAN Belastingdienst: NL86INGB0002445588
+"""
+
+cat4e, sup4e, pur4e, fn4e = test_case(
+    "Belastingdienst Betalingsherinnering",
+    ocr_4e,
+    "IMG_6661.jpeg",
+    "betaalinformatie",
+    date_received='2026-05-16',
+)
+domain4e = detect_domain(ocr_4e, "betaalinformatie", "IMG_6661.jpeg", sup4e, pur4e)
+
+print(f"\nEXPECTED: category=belasting, supplier=belastingdienst, purpose=betalingsherinnering, domain=belasting")
+print(f"ACTUAL: category={cat4e}, supplier={sup4e}, purpose={pur4e}, domain={domain4e}, filename={fn4e}")
+assert cat4e == 'belasting', f"Category should be belasting, got {cat4e}"
+assert sup4e == 'belastingdienst', f"Supplier should be belastingdienst, got {sup4e}"
+assert pur4e == 'betalingsherinnering', f"Purpose should be betalingsherinnering, got {pur4e}"
+assert domain4e == 'belasting', f"Domain should be belasting, got {domain4e}"
+assert fn4e == 'belasting_belastingdienst_betalingsherinnering_16-05-2026.jpeg', f"Unexpected filename: {fn4e}"
+
+
+# Test Case 4f: CE Certificate of Compliance with random filename
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4f: CE Certificate of Compliance")
+print("â–ˆ"*80)
+
+ocr_4f = """
+Certificate of Compliance
+CE
+Manufacturer: Qishengda Technology Co., Ltd.
+Product: Smart Lock
+Model: D2
+Declaration of Conformity
+"""
+
+cat4f, sup4f, pur4f, fn4f = test_case(
+    "CE Certificate of Compliance",
+    ocr_4f,
+    "7eeba915-3a9b-4f2c-8d1e-abcdef123456.jpg",
+    "",
+    date_received='2026-05-16',
+)
+
+print(f"\nEXPECTED: category=overig, supplier=qishengda_technology, purpose=ce_certificaat")
+print(f"ACTUAL: category={cat4f}, supplier={sup4f}, purpose={pur4f}, filename={fn4f}")
+assert cat4f == 'overig', f"Category should be overig, got {cat4f}"
+assert sup4f.startswith('qishengda'), f"Supplier should start with qishengda, got {sup4f}"
+assert pur4f == 'ce_certificaat', f"Purpose should be ce_certificaat, got {pur4f}"
+assert fn4f.startswith('ce_certificaat_qishengda'), f"Filename should be semantic CE certificate, got {fn4f}"
+assert '7eeba915' not in fn4f, f"Filename should not use random stem, got {fn4f}"
+
+
+# Test Case 4g: Plain photo without document OCR keeps IMG-style name
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4g: Plain Photo")
+print("â–ˆ"*80)
+
+cat4g, sup4g, pur4g, fn4g = test_case(
+    "Plain Photo",
+    "",
+    "IMG_6652.jpeg",
+    "",
+    date_received='2026-05-15',
+)
+
+print(f"\nEXPECTED: category=overig, filename keeps img_6652")
+print(f"ACTUAL: category={cat4g}, supplier={sup4g}, purpose={pur4g}, filename={fn4g}")
+assert cat4g == 'overig', f"Category should be overig, got {cat4g}"
+assert pur4g == '', f"Purpose should be empty, got {pur4g}"
+assert fn4g == 'overig_img_6652_15-05-2026.jpeg', f"Plain photo filename should keep IMG stem, got {fn4g}"
+
+
+# Test Case 4h: PostNL shipping label is not an invoice
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4h: PostNL Verzendlabel")
+print("â–ˆ"*80)
+
+ocr_4h = """
+PostNL
+Verzendlabel
+Brievenbuspakje
+Track & Trace: 3SABCD1234567
+Afzender
+Ontvanger
+"""
+
+cat4h, sup4h, pur4h, fn4h = test_case(
+    "PostNL Verzendlabel",
+    ocr_4h,
+    "IMG_6670.jpeg",
+    "",
+    date_received='2026-05-15',
+)
+domain4h = detect_domain(ocr_4h, "", "IMG_6670.jpeg", sup4h, pur4h)
+
+print(f"\nEXPECTED: category=overig, supplier=postnl, purpose=verzendlabel")
+print(f"ACTUAL: category={cat4h}, supplier={sup4h}, purpose={pur4h}, domain={domain4h}, filename={fn4h}")
+assert cat4h == 'overig', f"Category should be overig, got {cat4h}"
+assert sup4h == 'postnl', f"Supplier should be postnl, got {sup4h}"
+assert pur4h == 'verzendlabel', f"Purpose should be verzendlabel, got {pur4h}"
+assert domain4h == 'overig', f"Domain should be overig, got {domain4h}"
+assert fn4h == 'verzendlabel_postnl_15-05-2026.jpeg', f"Unexpected filename: {fn4h}"
+
+
+# Test Case 4i: Outgoing invoice with clear customer WSD
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4i: Verkoopfactuur Klant WSD")
+print("â–ˆ"*80)
+
+ocr_4i = """
+You and I
+Goods & Service
+Invoice
+Invoice Date: 20-01-2026
+Klant: WSD
+Jeroen van Leeuwen
+Total: EUR 150.00
+"""
+
+cat4i, sup4i, pur4i, fn4i = test_case(
+    "Verkoopfactuur Klant WSD",
+    ocr_4i,
+    "factuur Goods Service.pdf",
+    "Invoice from Goods Service",
+)
+
+print(f"\nEXPECTED: category=facturen, filename uses customer WSD")
+print(f"ACTUAL: category={cat4i}, supplier={sup4i}, purpose={pur4i}, filename={fn4i}")
+assert cat4i == 'facturen', f"Category should be facturen, got {cat4i}"
+assert fn4i == 'factuur_wsd_20-01-2026.pdf', f"Filename should use WSD customer, got {fn4i}"
 
 
 # Test Case 5: ING Bank Statement (should be ing, not payment context)

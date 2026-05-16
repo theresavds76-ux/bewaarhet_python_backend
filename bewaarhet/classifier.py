@@ -29,8 +29,13 @@ WEIGHTS = {
         'weak': ['huur']
     },
     'belasting': {
-        'strong': ['belastingdienst', 'aanslag', 'voorlopige aanslag', 'aanslagnummer', 'belastingaangifte', 'aangifteformulier', 'inkomstenbelasting', 'loonheffing', 'betalingsregeling'],
-        'medium': ['aangifte', 'omzetbelasting', 'btw-aangifte', 'belastingbetaling'],
+        'strong': [
+            'belastingdienst', 'dienst toeslagen', 'aanslag', 'voorlopige aanslag',
+            'aanslagnummer', 'belastingaangifte', 'aangifteformulier',
+            'inkomstenbelasting', 'loonheffing', 'betalingsregeling',
+            'betalingsherinnering', 'betaalinformatie', 'belastingaanslag'
+        ],
+        'medium': ['aangifte', 'omzetbelasting', 'btw-aangifte', 'belastingbetaling', 'termijn', 'termijnen'],
         'weak': ['btw']
     }
 }
@@ -47,6 +52,15 @@ def _count_matches(haystack: str, phrase: str) -> int:
 
 def classify_rules(text: str, filename: str = '', subject: str = '', snippet: str = '') -> str:
     haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
+
+    label_signals = ['verzendlabel', 'pakketlabel', 'brievenbuspakje', 'track trace', 'track & trace', 'barcode']
+    carrier_signals = ['postnl', 'dhl', 'dpd']
+    invoice_signals = ['factuurnummer', 'invoice number', 'factuurdatum', 'btw-bedrag', 'subtotal', 'subtotaal']
+    if any(carrier in haystack for carrier in carrier_signals) and any(signal in haystack for signal in label_signals):
+        if not any(signal in haystack for signal in invoice_signals):
+            return 'overig'
+    if 'betaalopdracht' in haystack and not any(signal in haystack for signal in invoice_signals):
+        return 'overig'
 
     scores: Dict[str, int] = {c: 0 for c in CATEGORIES}
 
@@ -68,8 +82,8 @@ def classify_rules(text: str, filename: str = '', subject: str = '', snippet: st
             scores['facturen'] += 2
     
     # Strong belasting signals: belastingdienst + betalingsregeling/aanslag/etc.
-    if 'belastingdienst' in haystack:
-        if any(sig in haystack for sig in ['betalingsregeling', 'aanslag', 'inkomstenbelasting', 'loonheffing', 'omzetbelasting', 'aangifteformulier']):
+    if 'belastingdienst' in haystack or 'dienst toeslagen' in haystack:
+        if any(sig in haystack for sig in ['betalingsregeling', 'aanslag', 'inkomstenbelasting', 'loonheffing', 'omzetbelasting', 'aangifteformulier', 'betaalinformatie', 'betalingsherinnering', 'belastingaanslag']):
             scores['belasting'] += 5  # strong boost
 
     # Avoid single weak matches dominating: require a minimal score
