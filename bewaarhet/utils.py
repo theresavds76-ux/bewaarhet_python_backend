@@ -154,6 +154,8 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
     if 'belastingdienst' in header:
         # require explicit mention of Belastingdienst (not just 'btw')
         return 'belastingdienst'
+    if 'belasting dienst' in header:
+        return 'belastingdienst'
 
     if 'dienst toeslagen' in header:
         return 'dienst_toeslagen'
@@ -390,6 +392,19 @@ def detect_invoice_customer(ocr_text: str) -> str:
     return ''
 
 
+def is_own_outgoing_invoice(ocr_text: str, supplier: str) -> bool:
+    """Detect MVP own sales invoices where customer name should lead filename."""
+    text = f'{supplier}\n{ocr_text}'.lower()
+    own_signals = [
+        'you and i',
+        'youandi',
+        'goods service',
+        'goods & service',
+        'you and i goods',
+    ]
+    return any(signal in text for signal in own_signals)
+
+
 def detect_certificate_filename_parts(ocr_text: str) -> list[str]:
     """Extract manufacturer/model/product parts for compliance certificates."""
     text = ocr_text or ''
@@ -446,6 +461,16 @@ def generate_filename(
 
     document_type = document_types.get(category, 'document')
 
+    tax_purposes = {
+        'betalingsherinnering',
+        'betaalinformatie',
+        'betalingsregeling',
+        'belastingaanslag',
+        'aangifte',
+    }
+    if supplier in {'belastingdienst', 'dienst_toeslagen'} and purpose in tax_purposes:
+        document_type = 'belasting'
+
     semantic_document_types = {
         'verzendlabel': 'verzendlabel',
         'coc': 'coc',
@@ -483,7 +508,7 @@ def generate_filename(
             supplier = 'onbekend'
 
     customer = detect_invoice_customer(ocr_text)
-    if category == 'facturen' and customer:
+    if category == 'facturen' and customer and is_own_outgoing_invoice(ocr_text, supplier):
         supplier = customer
 
     if category == 'overig' and not purpose and supplier == 'onbekend' and is_randomish_filename_stem(original_filename):
@@ -651,6 +676,17 @@ def detect_domain(
     filename_stem = Path(original_filename).stem if original_filename else ''
     primary_text = normalize(f'{subject} {filename_stem} {supplier} {purpose}')
     full_text = normalize(f'{subject} {filename_stem} {supplier} {purpose} {ocr_text}')
+
+    if supplier in {'belastingdienst', 'dienst_toeslagen'}:
+        if any(has_phrase(full_text, phrase) for phrase in (
+            'betaalinformatie',
+            'betalingsherinnering',
+            'betalingsregeling',
+            'belastingaanslag',
+            'betalingskenmerk',
+            'te betalen',
+        )):
+            return 'belasting'
 
     domains = [
         'wonen',

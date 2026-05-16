@@ -279,6 +279,7 @@ Belastingdienst
 
 Betaalinformatie
 Betalingsherinnering
+Factuur / betaling
 Te betalen: EUR 128,00
 Rekeningnummer / IBAN: NL86INGB0002445588
 Betalingskenmerk: 1234 5678 9012 3456
@@ -305,6 +306,7 @@ assert fn4e2 in {
     'belasting_belastingdienst_betaalinformatie_15-05-2026.jpeg',
 }, f"Unexpected filename: {fn4e2}"
 assert 'testje' not in fn4e2, f"Filename should not keep non-semantic original stem, got {fn4e2}"
+assert not fn4e2.startswith(('factuur_onbekend', 'overig_testje')), f"Tax filename priority failed: {fn4e2}"
 
 
 # Test Case 4f: Certificate of Compliance with random filename
