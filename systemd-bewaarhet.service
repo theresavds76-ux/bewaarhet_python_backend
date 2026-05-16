@@ -1,0 +1,13 @@
+[Unit]
+Description=Bewaarhet Python backend
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/bewaarhet_python_backend
+ExecStart=/opt/bewaarhet_python_backend/.venv/bin/python -m bewaarhet.worker
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
