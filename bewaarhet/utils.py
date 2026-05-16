@@ -259,12 +259,22 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
     def clean_organization_candidate(value: str) -> str:
         cleaned = clean_filename(value)
         legal_suffixes = {'bv', 'b.v.', 'nv', 'n.v.', 'ltd', 'limited', 'co', 'company', 'inc'}
+        descriptor_words = {'technology', 'technologies'}
+        location_prefixes = {'dongguan', 'shenzhen', 'guangzhou', 'ningbo', 'yiwu'}
         words = []
         for word in cleaned.split('_'):
             word = word.strip('.-')
-            if not word or word in legal_suffixes or is_generic_supplier_word(word) or is_month_name(word):
+            if (
+                not word
+                or word in legal_suffixes
+                or word in descriptor_words
+                or is_generic_supplier_word(word)
+                or is_month_name(word)
+            ):
                 continue
             words.append(word)
+        if len(words) > 1 and words[0] in location_prefixes:
+            words = words[1:]
         if not words:
             return ''
         return '_'.join(words[:3])
@@ -272,6 +282,7 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
     def detect_labeled_supplier(text: str) -> str:
         label_patterns = [
             r'(?im)^\s*(manufacturer|fabrikant|supplier|leverancier|issued by|producent)\s*[:\-]\s*(.+)$',
+            r'(?im)^\s*(manufacturer|fabrikant|supplier|leverancier|issued by|producent)\s*[:\-]?\s*$\s*^(.+)$',
         ]
         for pattern in label_patterns:
             match = re.search(pattern, text or '')
@@ -369,6 +380,8 @@ def detect_invoice_customer(ocr_text: str) -> str:
     """Return a clearly marked invoice customer, only when it looks business-like."""
     for pattern in [
         r'(?im)^\s*(klant|customer|debiteur|bill to|invoice to)\s*[:\-]\s*(.+)$',
+        r'(?im)^\s*(klant|customer|debiteur|bill to|invoice to)\s+(?!nummer\b|number\b|id\b)(.+)$',
+        r'(?im)^\s*(klant|customer|debiteur|bill to|invoice to)\s*$\s*^(.+)$',
         r'(?im)^\s*(klantgegevens|customer details)\s*[:\-]?\s*$\s*^(.+)$',
     ]:
         match = re.search(pattern, ocr_text or '')
@@ -395,12 +408,15 @@ def detect_invoice_customer(ocr_text: str) -> str:
 def is_own_outgoing_invoice(ocr_text: str, supplier: str) -> bool:
     """Detect MVP own sales invoices where customer name should lead filename."""
     text = f'{supplier}\n{ocr_text}'.lower()
+    text = re.sub(r'[_\-.]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
     own_signals = [
         'you and i',
         'youandi',
         'goods service',
         'goods & service',
         'you and i goods',
+        'youandi goods service',
     ]
     return any(signal in text for signal in own_signals)
 
@@ -411,20 +427,27 @@ def detect_certificate_filename_parts(ocr_text: str) -> list[str]:
 
     def value_for(labels: list[str]) -> str:
         for label in labels:
-            match = re.search(rf'(?im)^\s*{label}\s*[:\-]\s*(.+)$', text)
+            escaped_label = re.escape(label)
+            match = re.search(rf'(?im)^\s*{escaped_label}\s*[:\-]\s*(.+)$', text)
+            if match:
+                return match.group(1).strip()
+            match = re.search(rf'(?im)^\s*{escaped_label}\s*[:\-]?\s*$\s*^(.+)$', text)
             if match:
                 return match.group(1).strip()
         return ''
 
     maker = value_for(['manufacturer', 'fabrikant', 'trade mark', 'trademark', 'brand', 'merk'])
     product = value_for(['product name', 'product', 'artikel'])
-    model = value_for(['model', 'type'])
+    model = value_for(['main model', 'model', 'model no', 'model number', 'type'])
 
     maker_clean = clean_filename(maker)
+    location_prefixes = {'dongguan', 'shenzhen', 'guangzhou', 'ningbo', 'yiwu'}
     maker_words = [
         word.strip('.-') for word in maker_clean.split('_')
         if word.strip('.-') and word.strip('.-') not in {'technology', 'technologies', 'co', 'ltd', 'limited', 'company', 'inc', 'bv', 'nv'}
     ]
+    if len(maker_words) > 1 and maker_words[0] in location_prefixes:
+        maker_words = maker_words[1:]
     maker_part = '_'.join(maker_words[:2])
 
     model_part = clean_filename(model).split('_')[0] if model else ''

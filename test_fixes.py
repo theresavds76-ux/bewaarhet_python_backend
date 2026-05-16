@@ -317,9 +317,12 @@ print("â–ˆ"*80)
 ocr_4f = """
 Certificate of Compliance
 CE
-Manufacturer: Qishengda Technology Co., Ltd.
-Product: Smart Lock
-Model: D2
+Manufacturer:
+Dongguan Qishengda Technology Co., Ltd
+Product Name:
+Smart Lock
+Main Model:
+D2
 Declaration of Conformity
 """
 
@@ -402,7 +405,7 @@ You and I
 Goods & Service
 Invoice
 Invoice Date: 20-01-2026
-Klant: WSD
+Klant WSD
 Jeroen van Leeuwen
 Total: EUR 150.00
 """
@@ -430,7 +433,7 @@ You and I
 Goods & Service
 Invoice
 Invoice Date: 13-08-2025
-Klant: B Nails & Spa
+Klant B Nails & Spa
 Services rendered
 Total: EUR 45.00
 """
