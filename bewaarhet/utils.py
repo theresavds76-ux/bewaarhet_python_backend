@@ -64,7 +64,10 @@ def is_generic_supplier_word(value: str | None) -> bool:
     generic_words = {
         'docs', 'document', 'documenten', 'bijlage', 'bestand', 'attachment',
         'factuur', 'invoice', 'bon', 'receipt', 'scan', 'foto', 'pagina', 'page',
-        'bericht', 'e-mail', 'email', 'berichten'
+        'bericht', 'e-mail', 'email', 'berichten', 'huur', 'huurnota', 'nota',
+        'woningbouw', 'woningcorporatie', 'verhuurder', 'kapsalon', 'salon',
+        'garage', 'autobedrijf', 'autoservice', 'energie', 'verzekering',
+        'verzekeraar', 'abonnement'
     }
     return value in generic_words
 
@@ -128,9 +131,12 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
         # require explicit mention of Belastingdienst (not just 'btw')
         return 'belastingdienst'
 
-    # Known supplier keywords (checked in header first). Banks handled carefully.
+    # Known supplier keywords. These are checked before generic header extraction
+    # so real brands win over descriptive OCR lines.
     supplier_keywords = {
         'belastingdienst': ['belastingdienst'],
+        'dienst_toeslagen': ['dienst toeslagen'],
+        'greenchoice': ['greenchoice'],
         'kpn': ['kpn'],
         'ziggo': ['ziggo'],
         'odido': ['odido'],
@@ -155,6 +161,61 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
         pattern = r'\b' + re.escape(word) + r'\b'
         return bool(re.search(pattern, text))
 
+    def detect_named_supplier_from_header(text: str) -> str:
+        """Extract likely organization names from the OCR/mail header."""
+        blocked_line_phrases = {
+            'services rendered',
+            'rendered at',
+            'invoice details',
+            'factuurgegevens',
+            'omschrijving',
+            'behandeling',
+            'betaling',
+            'payment',
+            'amount',
+            'bedrag',
+        }
+        generic_line_words = {
+            'huurnota', 'huur', 'nota', 'factuur', 'invoice', 'document',
+            'pagina', 'page', 'datum', 'factuurdatum', 'factuurnummer',
+            'onderwerp', 'uw', 'verzoek', 'betalingsregeling', 'betaling',
+            'betalingstermijn', 'termijnen', 'bedrag', 'maand', 'overzicht',
+            'beschikking', 'aanslag', 'klantnummer', 'relatienummer',
+            'debiteur', 'crediteur', 'adres', 'postcode', 'telefoon',
+            'services', 'rendered', 'behandeling', 'dienst', 'omschrijving',
+            'details', 'amount', 'payment', 'description',
+        }
+        organization_markers = {
+            'wonen', 'energie', 'energy', 'kapsalon', 'salon', 'garage',
+            'autobedrijf', 'autoservice', 'autogarage', 'tandarts',
+            'praktijk', 'apotheek', 'zorggroep', 'zorg', 'verzekering',
+            'verzekeringen', 'verzekeraar', 'telecom', 'installatie',
+            'installateur', 'bouw', 'onderhoud', 'diensten', 'service',
+            'services', 'groep', 'stichting', 'vereniging', 'dienst',
+            'toeslagen', 'bv', 'nv', 'vof',
+        }
+        for raw_line in (text or '').splitlines()[:12]:
+            raw = raw_line.lower()
+            if any(phrase in raw for phrase in blocked_line_phrases):
+                continue
+            if re.search(r'\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2}', raw_line):
+                continue
+            cleaned = clean_filename(raw_line)
+            if not cleaned:
+                continue
+            words = [
+                word for word in cleaned.split('_')
+                if word and word not in generic_line_words and not is_month_name(word)
+            ]
+            if len(words) > 4:
+                continue
+            if not any(word in organization_markers for word in words):
+                continue
+            if not any(not is_generic_supplier_word(word) and word not in organization_markers for word in words):
+                continue
+            return '_'.join(words)
+        return ''
+
     # Check header first for strong matches
     for name, keywords in supplier_keywords.items():
         for kw in keywords:
@@ -176,18 +237,23 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
                     return name
                 continue
             if name == 'woningbouw':
-                # accept woningbouw if housing-related terms present
-                if any(x in header for x in ('huur', 'huurnota', 'woningbouw', 'woningcorporatie')):
-                    return name
                 continue
             # don't accept generic words
             if is_generic_supplier_word(kw):
                 continue
             return name
 
+    named_supplier = detect_named_supplier_from_header(header)
+    if named_supplier:
+        return named_supplier
+
     # Fallback: search subject and original filename (less weight)
     tail = (subject or '') + '\n' + (original_filename or '')
     tail = tail.lower()
+    named_supplier = detect_named_supplier_from_header(tail)
+    if named_supplier:
+        return named_supplier
+
     for name, keywords in supplier_keywords.items():
         for kw in keywords:
             # For bank names, require whole-word match
@@ -282,7 +348,7 @@ def generate_filename(
     parts = [document_type, supplier]
     # Avoid adding duplicate purpose when it matches the document type or is generic
     # Also skip if purpose is huur and supplier is woningbouw (redundant)
-    generic_purpose = {'document', 'bestand', 'bijlage', 'docs', 'factuur', 'huur'}
+    generic_purpose = {'document', 'bestand', 'bijlage', 'docs', 'factuur'}
     skip_purpose = purpose == document_type or purpose in generic_purpose or (supplier == 'woningbouw' and purpose == 'huur')
     if purpose and not skip_purpose:
         parts.append(purpose)
@@ -297,33 +363,69 @@ def detect_purpose(ocr_text: str, subject: str) -> str:
     """Detect short purpose tags like 'betalingsregeling', 'aanmaning', 'herinnering', 'aangifte', 'huur', 'factuur', 'bon'.
     
     Rules:
-    - betalingsregeling: explicit payment plan mentions
-    - aanmaning: dunning/collection notices (priority over other tags)
-    - herinnering: reminder notices
-    - aangifte: tax filing documents
-    - huur: housing/rent-related (huurnota or huur+nota, but NOT when month name only)
+    - betalingsregeling: explicit payment plan mentions, before dunning signals
+    - specific purposes like huur/energie/verzekering/abonnement before aanmaning
+    - aanmaning: only explicit strong collection/dunning notices
     - factuur: invoices (but lower priority than specific purposes)
     - bon: receipts
     """
     text = f"{subject}\n{ocr_text}".lower()
 
-    # Highest priority: collection/dunning notices
-    if 'aanmaning' in text or 'incasso' in text:
-        return 'aanmaning'
-    
-    if 'betalingsregeling' in text or 'betaalregeling' in text or 'verzoek om betalingsregeling' in text:
+    payment_plan_terms = [
+        'betalingsregeling',
+        'betaalregeling',
+        'verzoek om een betalingsregeling',
+        'verzoek om betalingsregeling',
+    ]
+    extreme_collection_terms = [
+        'sommatie',
+        'ingebrekestelling',
+        'deurwaarder',
+        'incassokosten',
+        'overgedragen aan incasso',
+        'laatste aanmaning',
+    ]
+
+    if any(term in text for term in payment_plan_terms):
+        if any(term in text for term in extreme_collection_terms):
+            return 'aanmaning'
         return 'betalingsregeling'
-    if 'herinnering' in text:
-        return 'herinnering'
+
     if 'aangifte' in text or 'belastingaangifte' in text:
         return 'aangifte'
     
-    # Huur/housing: huurnota OR (huur + nota), but only if not just a month name
+    # Specific domain/purpose signals come before dunning-like wording.
     if 'huurnota' in text or ('huur' in text and 'nota' in text):
         return 'huur'
-    # Also accept huur+ huurachterstand, huurbetalng, etc. if more specific context
     if any(k in text for k in ['huurachterstand', 'huurbetaling', 'huurbetalingsregeling', 'huurincasso']):
         return 'huur'
+    if any(k in text for k in ['energienota', 'energiecontract', 'jaarafrekening energie', 'termijnbedrag energie']):
+        return 'energie'
+    if any(k in text for k in ['polisblad', 'verzekeringspolis', 'verzekeringspremie', 'premie verzekering']):
+        return 'verzekering'
+    if any(k in text for k in ['abonnement', 'maandabonnement', 'lidmaatschap']):
+        return 'abonnement'
+
+    strong_aanmaning_terms = [
+        'aanmaning',
+        'laatste herinnering',
+        'ingebrekestelling',
+        'betalingsachterstand',
+        'achterstallig',
+        'achterstallige',
+        'sommatie',
+        'incassokosten',
+        'deurwaarder',
+    ]
+
+    if 'incasso' in text and 'automatische incasso' not in text:
+        return 'aanmaning'
+
+    if any(term in text for term in strong_aanmaning_terms):
+        return 'aanmaning'
+    
+    if 'herinnering' in text:
+        return 'herinnering'
     
     if 'factuur' in text or 'factuurnummer' in text or 'betalingstermijn' in text:
         return 'factuur'
@@ -412,7 +514,8 @@ def detect_domain(
         'belasting': [
             'belastingdienst', 'aangifte', 'belastingaangifte', 'aanslag',
             'btw aangifte', 'inkomstenbelasting', 'omzetbelasting',
-            'voorlopige aanslag', 'belastingteruggave',
+            'voorlopige aanslag', 'belastingteruggave', 'dienst toeslagen',
+            'toeslagen',
         ],
         'garantie': [
             'garantie', 'aankoopbewijs', 'serienummer', 'retour',

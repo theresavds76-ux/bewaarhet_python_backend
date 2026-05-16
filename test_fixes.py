@@ -2,7 +2,7 @@
 """Test script to validate classification and supplier detection fixes."""
 
 from bewaarhet.classifier import classify_document
-from bewaarhet.utils import detect_supplier, detect_purpose, generate_filename
+from bewaarhet.utils import detect_supplier, detect_purpose, detect_domain, generate_filename
 
 def test_case(name, ocr_text, filename, subject, sender_email='test@test.com'):
     """Test a single case and print results."""
@@ -140,12 +140,99 @@ cat4, sup4, pur4, fn4 = test_case(
     "huur oktober",
 )
 
-print(f"\nEXPECTED: category=facturen, supplier detected as huur, transformed to woningbouw in filename, purpose=aanmaning")
+print(f"\nEXPECTED: category=facturen, generic huur supplier ignored, purpose=huur")
 print(f"ACTUAL: category={cat4}, supplier={sup4}, purpose={pur4}, filename={fn4}")
-# The key is the final filename should have woningbouw (transformed from huur supplier)
-assert 'woningbouw' in fn4, f"Filename should contain 'woningbouw', got {fn4}"
+assert sup4 != 'huur', f"Supplier should not be generic huur, got {sup4}"
+assert 'woningbouw' not in fn4, f"Filename should not contain generic woningbouw, got {fn4}"
 assert 'oktober' not in fn4.lower(), f"Filename should not contain 'oktober', got {fn4}"
-assert 'aanmaning' in fn4 or 'huur' in fn4, f"Filename should contain purpose (aanmaning or huur), got {fn4}"
+assert pur4 == 'huur', f"Purpose should stay huur for huurnota documents, got {pur4}"
+
+
+# Test Case 4b: Cazas Wonen huurnota with normal payment instruction
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4b: Cazas Wonen Huurnota")
+print("â–ˆ"*80)
+
+ocr_4b = """
+Cazas Wonen
+Huurnota
+
+Factuurdatum: 01-11-2025
+Huurbetaling november 2025
+
+Wij verzoeken u het bedrag van EUR 850,00 uiterlijk 14-11-2025 te voldoen.
+U kunt nu betalen via de betaallink.
+"""
+
+cat4b, sup4b, pur4b, fn4b = test_case(
+    "Cazas Wonen Huurnota",
+    ocr_4b,
+    "cazas wonen huurnota.jpg",
+    "Cazas Wonen huurnota november",
+)
+domain4b = detect_domain(ocr_4b, "Cazas Wonen huurnota november", "cazas wonen huurnota.jpg", sup4b, pur4b)
+
+print(f"\nEXPECTED: category=facturen, supplier=cazas_wonen, purpose=huur, domain=wonen")
+print(f"ACTUAL: category={cat4b}, supplier={sup4b}, purpose={pur4b}, domain={domain4b}, filename={fn4b}")
+assert cat4b == 'facturen', f"Category should be facturen, got {cat4b}"
+assert sup4b == 'cazas_wonen', f"Supplier should be cazas_wonen, got {sup4b}"
+assert pur4b == 'huur', f"Purpose should be huur for normal huurnota, got {pur4b}"
+assert domain4b == 'wonen', f"Domain should be wonen, got {domain4b}"
+assert fn4b == 'factuur_cazas_wonen_huur_01-11-2025.jpg', f"Unexpected filename: {fn4b}"
+
+
+# Test Case 4c: Generic organization-name extraction
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4c: Generic Supplier Extraction")
+print("â–ˆ"*80)
+
+green_supplier = detect_supplier("Greenchoice\nEnergienota\nTermijnbedrag energie", "Greenchoice energienota", "energienota.pdf", "noreply@greenchoice.nl")
+salon_supplier = detect_supplier("Kapsalon Bella\nFactuur\nKnippen en stylen", "Factuur kapsalon", "factuur.pdf", "info@kapsalonbella.nl")
+garage_supplier = detect_supplier("Garage Jansen\nFactuur APK onderhoud", "Factuur garage", "factuur.pdf", "info@garagejansen.nl")
+
+print(f"Greenchoice supplier: {green_supplier}")
+print(f"Salon supplier: {salon_supplier}")
+print(f"Garage supplier: {garage_supplier}")
+assert green_supplier == 'greenchoice', f"Supplier should be greenchoice, got {green_supplier}"
+assert salon_supplier == 'kapsalon_bella', f"Supplier should be kapsalon_bella, got {salon_supplier}"
+assert garage_supplier == 'garage_jansen', f"Supplier should be garage_jansen, got {garage_supplier}"
+
+
+# Test Case 4d: Dienst Toeslagen betalingsregeling should not become aanmaning
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4d: Dienst Toeslagen Betalingsregeling")
+print("â–ˆ"*80)
+
+ocr_4d = """
+Dienst Toeslagen
+
+Datum: 16-05-2026
+Onderwerp: Uw verzoek om een betalingsregeling
+
+U hebt een betalingsregeling voor de volgende beschikking(en).
+De betalingsregeling betaald u in termijnen.
+Het bedrag per maand staat in dit overzicht.
+Als u niet op tijd betaalt, kunnen wij de regeling stoppen.
+"""
+
+cat4d, sup4d, pur4d, fn4d = test_case(
+    "Dienst Toeslagen Betalingsregeling",
+    ocr_4d,
+    "dienst toeslagen betalingsregeling.jpg",
+    "Uw verzoek om een betalingsregeling",
+)
+domain4d = detect_domain(ocr_4d, "Uw verzoek om een betalingsregeling", "dienst toeslagen betalingsregeling.jpg", sup4d, pur4d)
+
+print(f"\nEXPECTED: category=belasting, supplier=dienst_toeslagen, purpose=betalingsregeling, domain=belasting")
+print(f"ACTUAL: category={cat4d}, supplier={sup4d}, purpose={pur4d}, domain={domain4d}, filename={fn4d}")
+assert cat4d == 'belasting', f"Category should be belasting, got {cat4d}"
+assert sup4d in {'belastingdienst', 'dienst_toeslagen'}, f"Supplier should be belastingdienst or dienst_toeslagen, got {sup4d}"
+assert pur4d == 'betalingsregeling', f"Purpose should be betalingsregeling, got {pur4d}"
+assert domain4d == 'belasting', f"Domain should be belasting, got {domain4d}"
+assert fn4d in {
+    'belasting_belastingdienst_betalingsregeling_16-05-2026.jpg',
+    'belasting_dienst_toeslagen_betalingsregeling_16-05-2026.jpg',
+}, f"Unexpected filename: {fn4d}"
 
 
 # Test Case 5: ING Bank Statement (should be ing, not payment context)
