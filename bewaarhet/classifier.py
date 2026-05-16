@@ -53,6 +53,15 @@ def _count_matches(haystack: str, phrase: str) -> int:
 def classify_rules(text: str, filename: str = '', subject: str = '', snippet: str = '') -> str:
     haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
 
+    tax_authority_signals = ['belastingdienst', 'belasting dienst', 'dienst toeslagen']
+    tax_payment_signals = [
+        'betaalinformatie', 'betalingsherinnering', 'belastingaanslag',
+        'betalingskenmerk', 'te betalen', 'rekeningnummer', 'iban',
+        'termijn', 'datum waarop betaald moet zijn'
+    ]
+    if any(signal in haystack for signal in tax_authority_signals) and any(signal in haystack for signal in tax_payment_signals):
+        return 'belasting'
+
     label_signals = ['verzendlabel', 'pakketlabel', 'brievenbuspakje', 'track trace', 'track & trace', 'barcode']
     carrier_signals = ['postnl', 'dhl', 'dpd']
     invoice_signals = ['factuurnummer', 'invoice number', 'factuurdatum', 'btw-bedrag', 'subtotal', 'subtotaal']

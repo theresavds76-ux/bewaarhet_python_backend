@@ -269,6 +269,44 @@ assert domain4e == 'belasting', f"Domain should be belasting, got {domain4e}"
 assert fn4e == 'belasting_belastingdienst_betalingsherinnering_16-05-2026.jpeg', f"Unexpected filename: {fn4e}"
 
 
+# Test Case 4e2: Belastingdienst payment photo with non-semantic original filename
+print("\n\n" + "â–ˆ"*80)
+print("TEST CASE 4e2: Belastingdienst Testje Filename")
+print("â–ˆ"*80)
+
+ocr_4e2 = """
+Belastingdienst
+
+Betaalinformatie
+Betalingsherinnering
+Te betalen: EUR 128,00
+Rekeningnummer / IBAN: NL86INGB0002445588
+Betalingskenmerk: 1234 5678 9012 3456
+Termijn: betaal voor 15-05-2026
+"""
+
+cat4e2, sup4e2, pur4e2, fn4e2 = test_case(
+    "Belastingdienst Testje Filename",
+    ocr_4e2,
+    "testje.jpeg",
+    "",
+    date_received='2026-05-15',
+)
+domain4e2 = detect_domain(ocr_4e2, "", "testje.jpeg", sup4e2, pur4e2)
+
+print(f"\nEXPECTED: category=belasting, supplier=belastingdienst, purpose=betalingsherinnering, no testje in filename")
+print(f"ACTUAL: category={cat4e2}, supplier={sup4e2}, purpose={pur4e2}, domain={domain4e2}, filename={fn4e2}")
+assert cat4e2 == 'belasting', f"Category should be belasting, got {cat4e2}"
+assert sup4e2 == 'belastingdienst', f"Supplier should be belastingdienst, got {sup4e2}"
+assert pur4e2 in {'betalingsherinnering', 'betaalinformatie'}, f"Purpose should be betalingsherinnering or betaalinformatie, got {pur4e2}"
+assert domain4e2 == 'belasting', f"Domain should be belasting, got {domain4e2}"
+assert fn4e2 in {
+    'belasting_belastingdienst_betalingsherinnering_15-05-2026.jpeg',
+    'belasting_belastingdienst_betaalinformatie_15-05-2026.jpeg',
+}, f"Unexpected filename: {fn4e2}"
+assert 'testje' not in fn4e2, f"Filename should not keep non-semantic original stem, got {fn4e2}"
+
+
 # Test Case 4f: Certificate of Compliance with random filename
 print("\n\n" + "â–ˆ"*80)
 print("TEST CASE 4f: Certificate of Compliance")

@@ -557,8 +557,8 @@ def detect_purpose(ocr_text: str, subject: str) -> str:
 
     if 'betalingsherinnering' in text:
         return 'betalingsherinnering'
-    if 'betaalinformatie' in text or ('belastingdienst' in text and any(k in text for k in ['rekeningnummer', 'iban', 'termijn', 'betalen'])):
-        return 'betaling'
+    if 'betaalinformatie' in text or ('belastingdienst' in text and any(k in text for k in ['rekeningnummer', 'iban', 'termijn', 'betalen', 'betalingskenmerk'])):
+        return 'betaalinformatie'
 
     if any(k in text for k in ['offerte', 'quotation', 'quote number', 'offertenummer']):
         return 'offerte'
