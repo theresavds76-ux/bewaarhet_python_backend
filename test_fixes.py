@@ -16,7 +16,7 @@ def test_case(name, ocr_text, filename, subject, sender_email='test@test.com', d
     
     category = classify_document(ocr_text, filename, subject, ocr_text[:200])
     supplier = detect_supplier(ocr_text, subject, filename, sender_email)
-    purpose = detect_purpose(ocr_text, subject)
+    purpose = detect_purpose(ocr_text, subject, filename)
     new_filename, doc_date = generate_filename(
         category, filename, ocr_text, date_received, subject, supplier, purpose
     )
@@ -561,5 +561,199 @@ assert sup6 != 'ing', f"Supplier should not be ing for payment-only context, got
 
 
 print("\n\n" + "█"*80)
+print("TEST CASE 7: OCR-first Supplier Detection")
+print("█"*80)
+
+ocr_7a = """
+Vitens
+Termijnfactuur
+Factuurnummer: 134301917070
+Klantnummer: 12345678
+Periode: mei 2026
+"""
+
+cat7a, sup7a, pur7a, fn7a = test_case(
+    "Vitens OCR-first",
+    ocr_7a,
+    "termijnfactuur_134301917070.pdf",
+    "Fwd: termijnfactuur 134301917070",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: supplier=vitens")
+print(f"ACTUAL: supplier={sup7a}, filename={fn7a}")
+assert sup7a == 'vitens', f"Supplier should be vitens, got {sup7a}"
+assert 'vitens' in fn7a, f"Filename should contain vitens, got {fn7a}"
+
+ocr_7b = """
+Zoho Corporation B.V.
+Invoice
+Invoice Number: 92953051
+Total Due: EUR 29.00
+"""
+
+cat7b, sup7b, pur7b, fn7b = test_case(
+    "Zoho Corporation OCR-first",
+    ocr_7b,
+    "invoice_92953051.pdf",
+    "Fwd: Invoice 92953051",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: supplier=zoho_corporation")
+print(f"ACTUAL: supplier={sup7b}, filename={fn7b}")
+assert sup7b == 'zoho_corporation', f"Supplier should be zoho_corporation, got {sup7b}"
+assert 'zoho_corporation' in fn7b, f"Filename should contain zoho_corporation, got {fn7b}"
+
+ocr_7c = """
+Het Juridisch Loket
+Adviesdocument
+Datum: 17-05-2026
+Onderwerp: juridisch advies
+"""
+
+cat7c, sup7c, pur7c, fn7c = test_case(
+    "Het Juridisch Loket OCR-first",
+    ocr_7c,
+    "adviesdocument.pdf",
+    "Fwd: adviesdocument",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: supplier=het_juridisch_loket")
+print(f"ACTUAL: supplier={sup7c}, filename={fn7c}")
+assert sup7c == 'het_juridisch_loket', f"Supplier should be het_juridisch_loket, got {sup7c}"
+assert 'het_juridisch_loket' in fn7c, f"Filename should contain het_juridisch_loket, got {fn7c}"
+
+ocr_7d = """
+Gemeentebelastingen Amstelland
+Aanslagbiljet gemeentelijke belastingen
+Dagtekening: 17-05-2026
+Betreft: afvalstoffenheffing
+"""
+
+cat7d, sup7d, pur7d, fn7d = test_case(
+    "Gemeentebelastingen Amstelland OCR-first",
+    ocr_7d,
+    "juridische_documentatie_2026.pdf",
+    "Fwd: juridische documentatie",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: supplier=gemeentebelastingen_amstelland")
+print(f"ACTUAL: supplier={sup7d}, filename={fn7d}")
+assert sup7d == 'gemeentebelastingen_amstelland', f"Supplier should be gemeentebelastingen_amstelland, got {sup7d}"
+assert 'gemeentebelastingen_amstelland' in fn7d, f"Filename should contain gemeentebelastingen_amstelland, got {fn7d}"
+
+print("\n\n" + "█"*80)
+print("TEST CASE 8: Runtime document understanding")
+print("█"*80)
+
+ocr_8a = """
+Advies van het Juridisch Loket
+Datum: 24-02-2026
+Juridisch advies
+Onderwerp: alimentatie
+Ons advies is gebaseerd op de door u verstrekte gegevens.
+Adviesdocument
+"""
+
+cat8a, sup8a, pur8a, fn8a = test_case(
+    "Het Juridisch Loket adviesdocument",
+    ocr_8a,
+    "adviesdocument.pdf",
+    "Fwd: adviesdocument",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: category=overig, purpose=juridisch_advies, filename starts juridisch_advies_het_juridisch_loket")
+print(f"ACTUAL: category={cat8a}, supplier={sup8a}, purpose={pur8a}, filename={fn8a}")
+assert cat8a == 'overig', f"Advice document should not be facturen, got {cat8a}"
+assert pur8a in {'advies', 'juridisch_advies'}, f"Purpose should be advice, got {pur8a}"
+assert fn8a == 'juridisch_advies_het_juridisch_loket_24-02-2026.pdf', f"Unexpected filename: {fn8a}"
+
+ocr_8b = """
+Zoho Corporation B.V.
+INVOICE
+Invoice# 92953051
+Annual Subscription fee
+VAT
+Total
+Due Date: 17-05-2026
+"""
+
+cat8b, sup8b, pur8b, fn8b = test_case(
+    "Zoho subscription invoice",
+    ocr_8b,
+    "invoice_92953051.pdf",
+    "Fwd: Invoice 92953051",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: category=facturen, purpose=factuur, no bon in filename")
+print(f"ACTUAL: category={cat8b}, supplier={sup8b}, purpose={pur8b}, filename={fn8b}")
+assert cat8b == 'facturen', f"Zoho invoice should be facturen, got {cat8b}"
+assert sup8b == 'zoho_corporation', f"Supplier should be zoho_corporation, got {sup8b}"
+assert pur8b == 'factuur', f"Purpose should be factuur, got {pur8b}"
+assert fn8b == 'factuur_zoho_corporation_17-05-2026.pdf', f"Unexpected filename: {fn8b}"
+
+ocr_8c = ""
+
+cat8c, sup8c, pur8c, fn8c = test_case(
+    "Lemonade polis without OCR",
+    ocr_8c,
+    "document.pdf",
+    "Hier is je nieuwe Lemonade polis",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: supplier=lemonade, purpose=polis, filename=polis_lemonade_17-05-2026.pdf")
+print(f"ACTUAL: category={cat8c}, supplier={sup8c}, purpose={pur8c}, filename={fn8c}")
+assert sup8c == 'lemonade', f"Supplier should be lemonade, got {sup8c}"
+assert pur8c == 'polis', f"Purpose should be polis, got {pur8c}"
+assert fn8c == 'polis_lemonade_17-05-2026.pdf', f"Unexpected filename: {fn8c}"
+
+ocr_8d = ""
+
+cat8d, sup8d, pur8d, fn8d = test_case(
+    "Kwijtscheldingsformulier gemeente belasting",
+    ocr_8d,
+    "Ondernemers kwijtscheldingsformulier.pdf",
+    "Fwd: KWS-RK- B000198504",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: category=belasting, purpose=kwijtscheldingsformulier, no fwd/random supplier")
+print(f"ACTUAL: category={cat8d}, supplier={sup8d}, purpose={pur8d}, filename={fn8d}")
+assert cat8d == 'belasting', f"Kwijtscheldingsformulier should be belasting, got {cat8d}"
+assert sup8d not in {'fwd', 'kws', 'rk', 'b000198504', 'fwd-_kws-rk-_b000198504'}, f"Forwarded subject noise became supplier: {sup8d}"
+assert pur8d == 'kwijtscheldingsformulier', f"Purpose should be kwijtscheldingsformulier, got {pur8d}"
+assert fn8d == 'belasting_kwijtscheldingsformulier_17-05-2026.pdf', f"Unexpected filename: {fn8d}"
+
+print("\n\n" + "█"*80)
+ocr_8e = ""
+
+cat8e, sup8e, pur8e, fn8e = test_case(
+    "Metadata terms are not suppliers",
+    ocr_8e,
+    "kwijtscheldingsformulier.pdf",
+    "Fwd: registratienr M2511 zaaknummer 202565138 kenmerk ABC123",
+    sender_email='customer@gmail.com',
+    date_received='2026-05-17',
+)
+
+print(f"\nEXPECTED: no metadata supplier terms in supplier or filename")
+print(f"ACTUAL: category={cat8e}, supplier={sup8e}, purpose={pur8e}, filename={fn8e}")
+assert sup8e == 'onbekend', f"Administrative metadata should not become supplier, got {sup8e}"
+assert fn8e == 'belasting_kwijtscheldingsformulier_17-05-2026.pdf', f"Unexpected filename: {fn8e}"
+
 print("✓ ALL TESTS PASSED!")
 print("█"*80)

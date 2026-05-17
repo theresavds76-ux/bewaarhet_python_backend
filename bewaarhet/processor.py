@@ -57,6 +57,33 @@ def _resolve_filename_collision(customer: str, category: str, filename: str) -> 
     return candidate
 
 
+def _sender_domain(sender_email: str) -> str:
+    if '@' not in (sender_email or ''):
+        return ''
+    return sender_email.rsplit('@', 1)[1].lower()
+
+
+def _log_supplier_debug(
+    *,
+    original_filename: str,
+    mail_subject: str,
+    sender_email: str,
+    ocr_text: str,
+    supplier: str,
+    purpose: str,
+    generated_filename: str,
+) -> None:
+    print("[supplier-debug] begin")
+    print(f"[supplier-debug] original_filename: {original_filename}")
+    print(f"[supplier-debug] mail subject: {mail_subject}")
+    print(f"[supplier-debug] sender email/domain: {sender_email} / {_sender_domain(sender_email)}")
+    print(f"[supplier-debug] eerste 800 tekens OCR: {(ocr_text or '')[:800]}")
+    print(f"[supplier-debug] detected supplier: {supplier}")
+    print(f"[supplier-debug] detected purpose: {purpose}")
+    print(f"[supplier-debug] generated filename: {generated_filename}")
+    print("[supplier-debug] end")
+
+
 def _is_allowed(att: Attachment) -> bool:
     return file_extension(att.filename) in settings.allowed_extensions
 
@@ -89,7 +116,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
         )
 
         supplier = detect_supplier(ocr_text, mail.subject, att.filename, mail.from_email)
-        purpose = detect_purpose(ocr_text, mail.subject)
+        purpose = detect_purpose(ocr_text, mail.subject, att.filename)
         domain = detect_domain(ocr_text, mail.subject, att.filename, supplier, purpose)
 
         new_filename, document_date = generate_filename(
@@ -103,6 +130,16 @@ def process_upload_mail(mail: IncomingMail) -> None:
         )
 
         new_filename = _resolve_filename_collision(customer, category, new_filename)
+
+        _log_supplier_debug(
+            original_filename=att.filename,
+            mail_subject=mail.subject,
+            sender_email=mail.from_email,
+            ocr_text=ocr_text,
+            supplier=supplier,
+            purpose=purpose,
+            generated_filename=new_filename,
+        )
 
         path = _dropbox_path(customer, category, new_filename)
         upload_file(att.content, path)

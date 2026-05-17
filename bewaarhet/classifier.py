@@ -13,7 +13,8 @@ WEIGHTS = {
     'facturen': {
         'strong': [
             'factuur', 'invoice', 'factuurnummer', 'invoice number', 'factuurnummer',
-            'betalingstermijn', 'vervaldatum', 'factuurdatum'
+            'invoice#', 'invoice #', 'betalingstermijn', 'vervaldatum', 'factuurdatum',
+            'due date', 'annual subscription fee', 'subscription fee', 'vat'
         ],
         'medium': ['nota', 'huurnota', 'betaling', 'betaald', 'totaal', 'bedrag'],
         'weak': ['btw', 'iban', 'kvk', 'klantnummer']
@@ -33,7 +34,8 @@ WEIGHTS = {
             'belastingdienst', 'dienst toeslagen', 'aanslag', 'voorlopige aanslag',
             'aanslagnummer', 'belastingaangifte', 'aangifteformulier',
             'inkomstenbelasting', 'loonheffing', 'betalingsregeling',
-            'betalingsherinnering', 'betaalinformatie', 'belastingaanslag'
+            'betalingsherinnering', 'betaalinformatie', 'belastingaanslag',
+            'kwijtschelding', 'kwijtscheldingsformulier', 'gemeentebelastingen'
         ],
         'medium': ['aangifte', 'omzetbelasting', 'btw-aangifte', 'belastingbetaling', 'termijn', 'termijnen'],
         'weak': ['btw']
@@ -53,6 +55,20 @@ def _count_matches(haystack: str, phrase: str) -> int:
 def classify_rules(text: str, filename: str = '', subject: str = '', snippet: str = '') -> str:
     haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
 
+    advice_signals = [
+        'adviesdocument',
+        'juridisch advies',
+        'ons advies',
+        'advies van',
+        'advies van het juridisch loket',
+    ]
+    if any(signal in haystack for signal in advice_signals):
+        return 'overig'
+
+    tax_form_signals = ['kwijtschelding', 'kwijtscheldingsformulier']
+    if any(signal in haystack for signal in tax_form_signals):
+        return 'belasting'
+
     tax_authority_signals = ['belastingdienst', 'belasting dienst', 'dienst toeslagen']
     tax_payment_signals = [
         'betaalinformatie', 'betalingsherinnering', 'belastingaanslag',
@@ -70,6 +86,13 @@ def classify_rules(text: str, filename: str = '', subject: str = '', snippet: st
             return 'overig'
     if 'betaalopdracht' in haystack and not any(signal in haystack for signal in invoice_signals):
         return 'overig'
+
+    invoice_document_signals = [
+        'invoice', 'invoice#', 'invoice #', 'invoice number', 'factuur',
+        'factuurnummer', 'factuurdatum', 'annual subscription fee',
+        'subscription fee', 'due date',
+    ]
+    receipt_only_signals = ['kassabon', 'pinbon', 'bonnetje', 'betaalautomaat', 'contactloos']
 
     scores: Dict[str, int] = {c: 0 for c in CATEGORIES}
 
@@ -94,6 +117,11 @@ def classify_rules(text: str, filename: str = '', subject: str = '', snippet: st
     if 'belastingdienst' in haystack or 'dienst toeslagen' in haystack:
         if any(sig in haystack for sig in ['betalingsregeling', 'aanslag', 'inkomstenbelasting', 'loonheffing', 'omzetbelasting', 'aangifteformulier', 'betaalinformatie', 'betalingsherinnering', 'belastingaanslag']):
             scores['belasting'] += 5  # strong boost
+
+    if any(signal in haystack for signal in invoice_document_signals):
+        scores['facturen'] += 4
+        if not any(signal in haystack for signal in receipt_only_signals):
+            scores['bonnen'] = max(0, scores['bonnen'] - 3)
 
     # Avoid single weak matches dominating: require a minimal score
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
