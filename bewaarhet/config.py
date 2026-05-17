@@ -9,7 +9,23 @@ load_dotenv()
 
 
 def _csv(value: str) -> set[str]:
-    return {x.strip().lower() for x in value.split(',') if x.strip()}
+    items = set()
+    for item in value.split(','):
+        item = item.strip().lower()
+        if not item:
+            continue
+        items.add(item if item.startswith('.') else f'.{item}')
+    return items
+
+
+DEFAULT_ALLOWED_EXTENSIONS = (
+    '.pdf,.jpg,.jpeg,.png,.heic,'
+    '.doc,.docx,.odt,'
+    '.xls,.xlsx,.ods,.csv,'
+    '.txt,.rtf,'
+    '.ppt,.pptx,.odp,'
+    '.zip'
+)
 
 
 @dataclass(frozen=True)
@@ -33,13 +49,18 @@ class Settings:
     openai_model: str = os.getenv('OPENAI_MODEL', 'gpt-5-mini')
 
     database_path: Path = Path(os.getenv('DATABASE_PATH', 'data/bewaarhet.sqlite3'))
-    max_attachment_mb: int = int(os.getenv('MAX_ATTACHMENT_MB', '5'))
+    max_attachment_mb: int = int(os.getenv('MAX_ATTACHMENT_MB', '15'))
     allowed_extensions: set[str] = None  # type: ignore[assignment]
     search_result_limit: int = int(os.getenv('SEARCH_RESULT_LIMIT', '10'))
     poll_seconds: int = int(os.getenv('POLL_SECONDS', '60'))
 
     def __post_init__(self):
-        object.__setattr__(self, 'allowed_extensions', _csv(os.getenv('ALLOWED_EXTENSIONS', '.pdf,.jpg,.jpeg,.png')))
+        configured_extensions = _csv(os.getenv('ALLOWED_EXTENSIONS', ''))
+        object.__setattr__(
+            self,
+            'allowed_extensions',
+            _csv(DEFAULT_ALLOWED_EXTENSIONS) | configured_extensions,
+        )
 
 
 settings = Settings()

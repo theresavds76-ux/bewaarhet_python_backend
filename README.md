@@ -32,8 +32,11 @@ Gebruik in Zoho bij voorkeur een app-password, niet je normale wachtwoord.
 
 Standaard toegestaan:
 
-- PDF
-- JPG/JPEG
-- PNG
+- PDF, JPG/JPEG, PNG, HEIC
+- DOC/DOCX/ODT
+- XLS/XLSX/ODS/CSV
+- TXT/RTF
+- PPT/PPTX/ODP
+- ZIP
 
-Maximaal 5 MB. Andere bestanden worden niet ge-OCR'd.
+Maximaal 15 MB. ZIP-bestanden worden als archief opgeslagen en niet uitgepakt of ge-OCR'd.

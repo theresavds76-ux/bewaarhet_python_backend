@@ -24,6 +24,14 @@ from .utils import (
 )
 
 
+BLOCKED_EXTENSIONS = {
+    '.mp4', '.mov', '.avi', '.mkv', '.webm',
+    '.mp3', '.wav',
+    '.exe', '.msi', '.bat', '.cmd', '.sh',
+    '.rar', '.7z',
+}
+
+
 def _received_parts(mail: IncomingMail) -> tuple[str, str, str]:
     try:
         dt = parsedate_to_datetime(mail.date_raw)
@@ -87,11 +95,20 @@ def _log_supplier_debug(
 
 
 def _is_allowed(att: Attachment) -> bool:
-    return file_extension(att.filename) in settings.allowed_extensions
+    extension = file_extension(att.filename)
+    return extension in settings.allowed_extensions and extension not in BLOCKED_EXTENSIONS
 
 
 def _too_large(att: Attachment) -> bool:
     return att.size > settings.max_attachment_mb * 1024 * 1024
+
+
+def _is_zip(att: Attachment) -> bool:
+    return file_extension(att.filename) == '.zip'
+
+
+def _attachment_context_text(mail: IncomingMail) -> str:
+    return f'{mail.subject}\n{mail.body_text}'.strip()
 
 
 def _pdf_escape(text: str) -> str:
@@ -229,7 +246,12 @@ def process_upload_mail(mail: IncomingMail) -> None:
             print("Bestandstype niet toegestaan, overgeslagen.")
             continue
 
-        ocr_text = ocr_space(att.content, att.filename)
+        if _is_zip(att):
+            ocr_text = _attachment_context_text(mail)
+            print("ZIP-archief opgeslagen zonder uitpakken of OCR.")
+        else:
+            ocr_text = ocr_space(att.content, att.filename)
+
         category = classify_document(
             ocr_text,
             att.filename,
@@ -296,7 +318,12 @@ def process_mail(mail: IncomingMail) -> None:
         process_upload_mail(mail)
         return
 
-    if is_probable_search_email(mail.subject, mail.body_text, mail.has_attachments):
+    if is_probable_search_email(
+        mail.subject,
+        mail.body_text,
+        mail.has_attachments,
+        getattr(mail, 'to_email', ''),
+    ):
         query = extract_search_text(mail.subject, mail.body_text)
         print(f"Zoekmail herkend. Zoekterm: {query}")
         send_search_results(mail.from_email, query)
