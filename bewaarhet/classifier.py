@@ -4,8 +4,9 @@ from typing import Dict, List
 import re
 
 from .config import settings
+from .utils import is_note_like_content
 
-CATEGORIES = {'facturen', 'bonnen', 'contracten', 'belasting', 'overig'}
+CATEGORIES = {'facturen', 'bonnen', 'contracten', 'belasting', 'notities', 'overig'}
 
 
 # Weighted keyword lists. Strong > medium > weak.
@@ -54,6 +55,9 @@ def _count_matches(haystack: str, phrase: str) -> int:
 
 def classify_rules(text: str, filename: str = '', subject: str = '', snippet: str = '') -> str:
     haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
+
+    if is_note_like_content(text, subject, filename) or is_note_like_content(snippet, subject, filename):
+        return 'notities'
 
     advice_signals = [
         'adviesdocument',
@@ -155,7 +159,7 @@ def classify_openai(text: str, filename: str = '', subject: str = '', snippet: s
                     'role': 'system',
                     'content': (
                         'Classificeer een Nederlands document in exact één lowercase woord uit: '
-                        'facturen, bonnen, contracten, belasting, overig. '
+                        'facturen, bonnen, contracten, belasting, notities, overig. '
                         'Gebruik OCR-tekst eerst. Als OCR leeg of slecht is, gebruik bestandsnaam, onderwerp en snippet. '
                         'Het woord btw alleen is niet genoeg voor belasting. Geef alleen het categorie-woord terug.'
                     ),

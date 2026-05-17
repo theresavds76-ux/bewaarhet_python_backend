@@ -67,7 +67,7 @@ def is_document_email_without_attachment(mail) -> bool:
 def extract_search_text(subject: str, body: str) -> str:
     text = f'{subject}\n{body}'
     text = re.sub(r'(?i)^(re:|fw:|fwd:)\s*', '', text.strip())
-    text = re.sub(r'(?i)\b(zoek|vind|stuur|graag|document|documenten|mijn|de|het|een|naar|voor)\b', ' ', text)
+    text = re.sub(r"(?i)\b(ik|zoek|vind|stuur|graag|document|documenten|mijn|mn|m'n|me|mij|de|het|een|naar|voor|van)\b", ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
     return text[:200]
 
@@ -98,6 +98,96 @@ def clean_filename(text: str) -> str:
         text = text.replace('__', '_')
 
     return text.strip('_')
+
+
+NOTE_TRIGGER_PHRASES = (
+    'bewaar deze notitie',
+    'notitie voor me',
+    'onthoud',
+    'noteer',
+    'memo',
+    'persoonlijke notitie',
+    'bewaar dit',
+)
+
+
+def strip_email_signature(text: str) -> tuple[str, int]:
+    """Return the user-written part of an email body and the ignored footer size."""
+    if not text:
+        return '', 0
+
+    normalized = text.replace('\r\n', '\n').replace('\r', '\n')
+    lines = normalized.split('\n')
+    signature_markers = (
+        'met vriendelijke groet',
+        'vriendelijke groet',
+        'hartelijke groet',
+        'kind regards',
+        'best regards',
+        'regards',
+        'groet,',
+        'mvg',
+        'disclaimer',
+        'confidentiality notice',
+        'this e-mail',
+        'this email',
+        'deze e-mail',
+        'dit bericht',
+        'privacyverklaring',
+        'privacy statement',
+        '-----begin pgp',
+        '----- begin pgp',
+    )
+
+    cut_index: int | None = None
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        lower = stripped.lower()
+        if index == 0 and lower not in {'-----begin pgp message-----', '----- begin pgp message -----'}:
+            continue
+        if stripped == '--' or any(lower.startswith(marker) for marker in signature_markers):
+            cut_index = index
+            break
+
+    if cut_index is None:
+        return normalized.strip(), 0
+
+    kept = '\n'.join(lines[:cut_index]).strip()
+    ignored = len(normalized) - len(kept)
+    return kept, max(0, ignored)
+
+
+def is_note_like_content(text: str, subject: str = '', filename: str = '') -> bool:
+    haystack = f'{subject}\n{filename}\n{text}'.lower()
+    haystack = re.sub(r'\s+', ' ', haystack)
+    return any(re.search(rf'(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])', haystack) for phrase in NOTE_TRIGGER_PHRASES)
+
+
+def detect_note_filename_hint(text: str, subject: str = '') -> str:
+    cleaned_text, _ = strip_email_signature(f'{subject}\n{text}'.strip())
+    compact = re.sub(r'\s+', ' ', cleaned_text).strip()
+
+    password_match = re.search(
+        r'(?i)\bwachtwoord\s+(?:voor\s+)?([A-Za-z0-9][A-Za-z0-9._-]{1,})\b',
+        compact,
+    )
+    if password_match:
+        return clean_filename(f"wachtwoord_{password_match.group(1)}")
+
+    for phrase in NOTE_TRIGGER_PHRASES:
+        compact = re.sub(rf'(?i)\b{re.escape(phrase)}\b\s*:?', ' ', compact)
+    compact = re.split(r'(?i)\b(?:is|=)\b', compact, maxsplit=1)[0]
+
+    stop_words = {
+        'bewaar', 'deze', 'dit', 'notitie', 'voor', 'me', 'mij', 'mijn', 'mn',
+        "m'n", 'persoonlijke', 'memo', 'onthoud', 'noteer', 'even', 'graag',
+        'later', 'aub', 'alsjeblieft', 'de', 'het', 'een', 'en', 'is',
+    }
+    words = [
+        word for word in clean_filename(compact).replace('-', '_').split('_')
+        if word and word not in stop_words and not word.isdigit()
+    ]
+    return '_'.join(words[:4])
 
 
 def extract_labeled_value(ocr_text: str, labels: list[str], stop_labels: list[str] | None = None) -> str:
@@ -810,6 +900,7 @@ def generate_filename(
         'bonnen': 'bon',
         'contracten': 'contract',
         'belasting': 'belasting',
+        'notities': 'notitie',
         'overig': 'overig',
     }
 
@@ -844,6 +935,7 @@ def generate_filename(
         'juridisch_advies': 'juridisch_advies',
         'aankoopbewijs': 'aankoopbewijs',
         'garantiebewijs': 'garantiebewijs',
+        'notitie': 'notitie',
     }
     if purpose in semantic_document_types and not is_tax_purpose:
         document_type = semantic_document_types[purpose]
@@ -884,6 +976,15 @@ def generate_filename(
     except Exception:
         display_date = document_date
 
+    if purpose == 'notitie' or category == 'notities' or is_note_like_content(ocr_text, subject, original_filename):
+        note_hint = detect_note_filename_hint(ocr_text, subject)
+        parts = ['notitie']
+        if note_hint:
+            parts.append(note_hint)
+        parts.append(display_date)
+        filename = '_'.join(parts) + extension
+        return clean_filename(filename), document_date
+
     if purpose == 'coc':
         certificate_parts = detect_certificate_filename_parts(ocr_text)
         parts = [document_type] + (certificate_parts or [supplier])
@@ -919,6 +1020,9 @@ def detect_purpose(ocr_text: str, subject: str, original_filename: str = '') -> 
     - bon: receipts
     """
     text = f"{subject}\n{original_filename}\n{ocr_text}".lower()
+
+    if is_note_like_content(ocr_text, subject, original_filename):
+        return 'notitie'
 
     payment_plan_terms = [
         'betalingsregeling',

@@ -18,6 +18,8 @@ from .utils import (
     is_document_email_without_attachment,
     is_probable_search_email,
     safe_customer_folder,
+    strip_email_signature,
+    is_note_like_content,
     detect_supplier,
     detect_purpose,
     detect_domain,
@@ -30,6 +32,40 @@ BLOCKED_EXTENSIONS = {
     '.exe', '.msi', '.bat', '.cmd', '.sh',
     '.rar', '.7z',
 }
+
+
+def _recipient_contains(mail: IncomingMail, address: str) -> bool:
+    return address.lower() in (getattr(mail, 'to_email', '') or '').lower()
+
+
+def _search_query_from_mail(mail: IncomingMail) -> str:
+    return f'{mail.subject}\n{mail.body_text}'.strip()[:200]
+
+
+def _log_route(route: str, reason: str) -> None:
+    print(f"Route gekozen: {route} | Reden: {reason}")
+
+
+def _has_service_search_intent(mail: IncomingMail) -> bool:
+    import re
+
+    text = f'{mail.subject}\n{mail.body_text}'.lower()
+    text = re.sub(r'\s+', ' ', text).strip()
+    if not text:
+        return False
+
+    possessive = r"(?:mijn|mn|m'n|me|mij)"
+    patterns = [
+        rf'\bik\s+zoek\s+(?:{possessive}\s+)?\S+',
+        rf'\bzoek\s+(?:{possessive}\s+)?\S+',
+        rf'\b(?:kun|kan)\s+je\s+(?:{possessive}\s+)?[^.?!]{{0,80}}\bvinden\b',
+        rf'\bkunt\s+u\s+(?:{possessive}\s+)?[^.?!]{{0,80}}\bvinden\b',
+        rf'\bheb\s+je\s+(?:{possessive}\s+)[^.?!]{{1,80}}',
+        rf'\bstuur\s+(?:{possessive}\s+)?[^.?!]{{1,80}}',
+        rf'\bwaar\s+is\s+(?:{possessive}\s+)?[^.?!]{{1,80}}',
+        rf'\bik\s+kan\s+(?:{possessive}\s+)?[^.?!]{{1,80}}\bniet\s+vinden\b',
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
 
 
 def _received_parts(mail: IncomingMail) -> tuple[str, str, str]:
@@ -92,6 +128,13 @@ def _log_supplier_debug(
     print(f"[supplier-debug] detected purpose: {purpose}")
     print(f"[supplier-debug] generated filename: {generated_filename}")
     print("[supplier-debug] end")
+
+
+def _log_semantic_debug(category: str, purpose: str, ignored_signature_chars: int = 0) -> None:
+    semantic_type = 'notitie' if category == 'notities' or purpose == 'notitie' else category
+    print(f"[semantic-debug] detected semantic type: {semantic_type}")
+    print(f"[semantic-debug] detected purpose: {purpose or 'onbekend'}")
+    print(f"[semantic-debug] ignored signature/footer length: {ignored_signature_chars}")
 
 
 def _is_allowed(att: Attachment) -> bool:
@@ -174,17 +217,24 @@ def process_document_body_mail(mail: IncomingMail) -> None:
     customer = safe_customer_folder(mail.from_email)
     date_received, year, month = _received_parts(mail)
     original_filename = 'email_body.pdf'
-    document_text = f'{mail.subject}\n{mail.body_text}'.strip()
+    body_without_footer, ignored_signature_chars = strip_email_signature(mail.body_text)
+    semantic_text = f'{mail.subject}\n{body_without_footer}'.strip()
 
-    category = classify_document(document_text, original_filename, mail.subject, mail.body_text[:500])
-    supplier = detect_supplier(document_text, mail.subject, original_filename, mail.from_email)
-    purpose = detect_purpose(document_text, mail.subject, original_filename)
-    domain = detect_domain(document_text, mail.subject, original_filename, supplier, purpose)
+    if is_note_like_content(semantic_text, mail.subject, original_filename):
+        category = 'notities'
+        supplier = ''
+        purpose = 'notitie'
+        domain = 'overig'
+    else:
+        category = classify_document(semantic_text, original_filename, mail.subject, body_without_footer[:500])
+        supplier = detect_supplier(semantic_text, mail.subject, original_filename, mail.from_email)
+        purpose = detect_purpose(semantic_text, mail.subject, original_filename)
+        domain = detect_domain(semantic_text, mail.subject, original_filename, supplier, purpose)
 
     new_filename, document_date = generate_filename(
         category,
         original_filename,
-        document_text,
+        semantic_text,
         date_received,
         mail.subject,
         supplier=supplier,
@@ -196,11 +246,12 @@ def process_document_body_mail(mail: IncomingMail) -> None:
         original_filename=original_filename,
         mail_subject=mail.subject,
         sender_email=mail.from_email,
-        ocr_text=document_text,
+        ocr_text=semantic_text,
         supplier=supplier,
         purpose=purpose,
         generated_filename=new_filename,
     )
+    _log_semantic_debug(category, purpose, ignored_signature_chars)
 
     pdf_bytes = _mail_body_pdf_bytes(mail.subject, mail.body_text)
     path = _dropbox_path(customer, category, new_filename)
@@ -222,8 +273,8 @@ def process_document_body_mail(mail: IncomingMail) -> None:
         'title': mail.subject,
         'date_received': date_received,
         'dropbox_path': path,
-        'ocr_preview': document_text[:200],
-        'ocr_text': document_text,
+        'ocr_preview': semantic_text[:200],
+        'ocr_text': semantic_text,
         'year': year,
         'month': month,
     })
@@ -259,9 +310,15 @@ def process_upload_mail(mail: IncomingMail) -> None:
             mail.body_text[:500],
         )
 
-        supplier = detect_supplier(ocr_text, mail.subject, att.filename, mail.from_email)
-        purpose = detect_purpose(ocr_text, mail.subject, att.filename)
-        domain = detect_domain(ocr_text, mail.subject, att.filename, supplier, purpose)
+        if is_note_like_content(ocr_text, mail.subject, att.filename):
+            category = 'notities'
+            supplier = ''
+            purpose = 'notitie'
+            domain = 'overig'
+        else:
+            supplier = detect_supplier(ocr_text, mail.subject, att.filename, mail.from_email)
+            purpose = detect_purpose(ocr_text, mail.subject, att.filename)
+            domain = detect_domain(ocr_text, mail.subject, att.filename, supplier, purpose)
 
         new_filename, document_date = generate_filename(
             category,
@@ -284,6 +341,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
             purpose=purpose,
             generated_filename=new_filename,
         )
+        _log_semantic_debug(category, purpose)
 
         path = _dropbox_path(customer, category, new_filename)
         upload_file(att.content, path)
@@ -314,7 +372,40 @@ def process_upload_mail(mail: IncomingMail) -> None:
 
 
 def process_mail(mail: IncomingMail) -> None:
+    if _recipient_contains(mail, 'zoek@bewaarhet.nl'):
+        query = _search_query_from_mail(mail)
+        _log_route('search', 'ontvanger bevat zoek@bewaarhet.nl')
+        print(f"Zoekmail herkend. Zoekterm: {query}")
+        send_search_results(mail.from_email, query)
+        print("Zoekresultaten verstuurd.")
+        return
+
+    if _recipient_contains(mail, 'bewaren@bewaarhet.nl'):
+        _log_route('store', 'ontvanger bevat bewaren@bewaarhet.nl')
+        if mail.has_attachments:
+            process_upload_mail(mail)
+        else:
+            process_document_body_mail(mail)
+        return
+
+    if _recipient_contains(mail, 'service@bewaarhet.nl'):
+        if _has_service_search_intent(mail):
+            query = extract_search_text(mail.subject, mail.body_text)
+            _log_route('search', 'service@bewaarhet.nl met zoekintentie')
+            print(f"Zoekmail herkend. Zoekterm: {query}")
+            send_search_results(mail.from_email, query)
+            print("Zoekresultaten verstuurd.")
+            return
+
+        _log_route('store', 'service@bewaarhet.nl zonder zoekintentie')
+        if mail.has_attachments:
+            process_upload_mail(mail)
+        else:
+            process_document_body_mail(mail)
+        return
+
     if mail.has_attachments:
+        _log_route('store', 'mail heeft bijlagen')
         process_upload_mail(mail)
         return
 
@@ -325,12 +416,14 @@ def process_mail(mail: IncomingMail) -> None:
         getattr(mail, 'to_email', ''),
     ):
         query = extract_search_text(mail.subject, mail.body_text)
+        _log_route('search', 'expliciete zoekterm in onderwerp')
         print(f"Zoekmail herkend. Zoekterm: {query}")
         send_search_results(mail.from_email, query)
         print("Zoekresultaten verstuurd.")
         return
 
     if is_document_email_without_attachment(mail):
+        _log_route('store', 'documentachtige mail zonder bijlage')
         process_document_body_mail(mail)
         return
 

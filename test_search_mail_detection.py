@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from unittest.mock import patch
 
 from bewaarhet.mail_client import IncomingMail
@@ -18,6 +20,18 @@ def _mail(subject: str, body: str, *, to_email: str = 'service@bewaarhet.nl') ->
         attachments=[],
         to_email=to_email,
     )
+
+
+def _mail_from(
+    subject: str,
+    body: str,
+    *,
+    from_email: str,
+    to_email: str,
+) -> IncomingMail:
+    mail = _mail(subject, body, to_email=to_email)
+    mail.from_email = from_email
+    return mail
 
 
 class SearchMailDetectionTests(unittest.TestCase):
@@ -57,6 +71,154 @@ class SearchMailDetectionTests(unittest.TestCase):
 
         send_search_results.assert_not_called()
         process_document_body_mail.assert_called_once_with(mail)
+
+    def test_mail_to_bewaren_without_attachment_is_saved(self) -> None:
+        mail = _mail(
+            'Los document',
+            'Bewaar deze notitie voor later.',
+            to_email='Bewaarhet <bewaren@bewaarhet.nl>',
+        )
+
+        with (
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+        ):
+            process_mail(mail)
+
+        send_search_results.assert_not_called()
+        process_document_body_mail.assert_called_once_with(mail)
+
+    def test_mail_to_bewaren_always_stores_even_with_search_words(self) -> None:
+        mail = _mail(
+            'Ik zoek mijn wachtwoord',
+            'wachtwoord AAA',
+            to_email='Bewaarhet <bewaren@bewaarhet.nl>',
+        )
+
+        output = StringIO()
+        with (
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+            redirect_stdout(output),
+        ):
+            process_mail(mail)
+
+        send_search_results.assert_not_called()
+        process_document_body_mail.assert_called_once_with(mail)
+        self.assertIn('Route gekozen: store | Reden: ontvanger bevat bewaren@bewaarhet.nl', output.getvalue())
+
+    def test_mail_to_bewaren_with_empty_subject_is_saved(self) -> None:
+        mail = _mail(
+            '',
+            'Korte tekst die toch bewaard moet worden.',
+            to_email='bewaren@bewaarhet.nl',
+        )
+
+        with patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail:
+            process_mail(mail)
+
+        process_document_body_mail.assert_called_once_with(mail)
+
+    def test_mail_to_bewaren_from_external_sender_is_saved(self) -> None:
+        mail = _mail_from(
+            '',
+            'Externe mail zonder bijlage.',
+            from_email='klant@extern-bedrijf.nl',
+            to_email='bewaren@bewaarhet.nl',
+        )
+
+        with patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail:
+            process_mail(mail)
+
+        process_document_body_mail.assert_called_once_with(mail)
+
+    def test_mail_to_zoek_address_becomes_search(self) -> None:
+        mail = _mail(
+            'factuur kpn',
+            'april 2026',
+            to_email='Bewaarhet Zoek <zoek@bewaarhet.nl>',
+        )
+
+        with (
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+        ):
+            process_mail(mail)
+
+        process_document_body_mail.assert_not_called()
+        send_search_results.assert_called_once_with('user@example.com', 'factuur kpn\napril 2026')
+
+    def test_mail_to_zoek_address_always_searches_even_with_invoice_content(self) -> None:
+        mail = _mail(
+            'Odido betalingsherinnering',
+            'Factuurnummer O-2026-1205. Totaalbedrag EUR 48,50.',
+            to_email='zoek@bewaarhet.nl',
+        )
+
+        output = StringIO()
+        with (
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+            redirect_stdout(output),
+        ):
+            process_mail(mail)
+
+        process_document_body_mail.assert_not_called()
+        send_search_results.assert_called_once_with(
+            'user@example.com',
+            'Odido betalingsherinnering\nFactuurnummer O-2026-1205. Totaalbedrag EUR 48,50.',
+        )
+        self.assertIn('Route gekozen: search | Reden: ontvanger bevat zoek@bewaarhet.nl', output.getvalue())
+
+    def test_service_search_intent_becomes_search(self) -> None:
+        mail = _mail(
+            'Ik zoek mn wachtwoord voor AAA',
+            '',
+            to_email='service@bewaarhet.nl',
+        )
+
+        output = StringIO()
+        with (
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+            redirect_stdout(output),
+        ):
+            process_mail(mail)
+
+        process_document_body_mail.assert_not_called()
+        send_search_results.assert_called_once_with('user@example.com', 'wachtwoord AAA')
+        self.assertIn('Route gekozen: search | Reden: service@bewaarhet.nl met zoekintentie', output.getvalue())
+
+    def test_service_normal_invoice_reminder_becomes_store(self) -> None:
+        mail = _mail(
+            'Odido betalingsherinnering',
+            'Factuurnummer O-2026-1205. Totaalbedrag EUR 48,50. IBAN NL00BANK0123456789.',
+            to_email='service@bewaarhet.nl',
+        )
+
+        output = StringIO()
+        with (
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+            redirect_stdout(output),
+        ):
+            process_mail(mail)
+
+        send_search_results.assert_not_called()
+        process_document_body_mail.assert_called_once_with(mail)
+        self.assertIn('Route gekozen: store | Reden: service@bewaarhet.nl zonder zoekintentie', output.getvalue())
+
+    def test_subject_zoek_still_works_as_fallback(self) -> None:
+        mail = _mail(
+            'zoek',
+            'factuur kpn april',
+            to_email='info@bewaarhet.nl',
+        )
+
+        with patch('bewaarhet.processor.send_search_results') as send_search_results:
+            process_mail(mail)
+
+        send_search_results.assert_called_once_with('user@example.com', 'factuur kpn april')
 
 
 if __name__ == '__main__':
