@@ -2,7 +2,19 @@
 """Test script to validate classification and supplier detection fixes."""
 
 from bewaarhet.classifier import classify_document
-from bewaarhet.utils import detect_supplier, detect_purpose, detect_domain, generate_filename
+from bewaarhet.utils import detect_supplier, detect_purpose, detect_domain, generate_filename, is_document_email_without_attachment
+
+
+class TestMail:
+    def __init__(self, subject, body_text, from_email='user@example.com'):
+        self.subject = subject
+        self.body_text = body_text
+        self.from_email = from_email
+        self.attachments = []
+
+    @property
+    def has_attachments(self):
+        return False
 
 def test_case(name, ocr_text, filename, subject, sender_email='test@test.com', date_received='2025-08-13'):
     """Test a single case and print results."""
@@ -754,6 +766,65 @@ print(f"\nEXPECTED: no metadata supplier terms in supplier or filename")
 print(f"ACTUAL: category={cat8e}, supplier={sup8e}, purpose={pur8e}, filename={fn8e}")
 assert sup8e == 'onbekend', f"Administrative metadata should not become supplier, got {sup8e}"
 assert fn8e == 'belasting_kwijtscheldingsformulier_17-05-2026.pdf', f"Unexpected filename: {fn8e}"
+
+
+print("\n\n" + "█"*80)
+print("TEST CASE 9: Document emails without attachments")
+print("█"*80)
+
+apple_subject = "Your Apple invoice"
+apple_body = """
+Apple
+Invoice
+Invoice Number: APL-2026-0516
+Date: 16-05-2026
+VAT: EUR 2.10
+Total: EUR 12.99
+"""
+apple_mail = TestMail(apple_subject, apple_body, from_email='no_reply@email.apple.com')
+apple_text = f"{apple_subject}\n{apple_body}"
+assert is_document_email_without_attachment(apple_mail), "Apple invoice body should be recognized as document email"
+cat9a, sup9a, pur9a, fn9a = test_case(
+    "Apple invoice email body",
+    apple_text,
+    "email_body.pdf",
+    apple_subject,
+    sender_email=apple_mail.from_email,
+    date_received='2026-05-16',
+)
+assert cat9a == 'facturen', f"Apple email invoice should be facturen, got {cat9a}"
+assert sup9a == 'apple', f"Supplier should be apple, got {sup9a}"
+assert fn9a == 'factuur_apple_16-05-2026.pdf', f"Unexpected filename: {fn9a}"
+
+odido_subject = "Odido betalingsherinnering"
+odido_body = """
+Odido
+Betalingsherinnering
+Factuurnummer: O-2026-1205
+Totaalbedrag: EUR 48,50
+IBAN: NL00BANK0123456789
+Datum: 12-05-2026
+"""
+odido_mail = TestMail(odido_subject, odido_body, from_email='noreply@odido.nl')
+odido_text = f"{odido_subject}\n{odido_body}"
+assert is_document_email_without_attachment(odido_mail), "Odido payment reminder body should be recognized as document email"
+cat9b, sup9b, pur9b, fn9b = test_case(
+    "Odido betalingsherinnering email body",
+    odido_text,
+    "email_body.pdf",
+    odido_subject,
+    sender_email=odido_mail.from_email,
+    date_received='2026-05-12',
+)
+assert sup9b == 'odido', f"Supplier should be odido, got {sup9b}"
+assert pur9b == 'betalingsherinnering', f"Purpose should be betalingsherinnering, got {pur9b}"
+assert fn9b == 'betalingsherinnering_odido_12-05-2026.pdf', f"Unexpected filename: {fn9b}"
+
+search_mail = TestMail('Zoek mijn factuur van Apple', 'Kun je mijn Apple factuur sturen?')
+assert not is_document_email_without_attachment(search_mail), "Search mail should not be treated as document email"
+
+plain_mail = TestMail('Afspraak morgen', 'Hoi, zullen we morgen om 10:00 even bellen?')
+assert not is_document_email_without_attachment(plain_mail), "Plain non-document mail should not be treated as document email"
 
 print("✓ ALL TESTS PASSED!")
 print("█"*80)

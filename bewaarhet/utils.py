@@ -17,8 +17,41 @@ def is_probable_search_email(subject: str, body: str, has_attachments: bool) -> 
     if has_attachments:
         return False
     text = f'{subject}\n{body}'.strip().lower()
-    search_words = ('zoek', 'vind', 'stuur', 'document', 'bon', 'factuur', 'contract', 'belasting', 'aangifte')
-    return any(word in text for word in search_words)
+    request_words = ('zoek', 'vind', 'stuur', 'graag', 'opvragen', 'opzoeken', 'kan je', 'kun je')
+    document_words = ('document', 'documenten', 'bon', 'factuur', 'contract', 'belasting', 'aangifte', 'polis')
+    return any(word in text for word in request_words) and any(word in text for word in document_words)
+
+
+def is_document_email_without_attachment(mail) -> bool:
+    if getattr(mail, 'has_attachments', False):
+        return False
+
+    subject = getattr(mail, 'subject', '') or ''
+    body_text = getattr(mail, 'body_text', '') or ''
+    if is_probable_search_email(subject, body_text, False):
+        return False
+
+    text = f'{subject}\n{body_text}'.lower()
+    if len(text.strip()) < 40:
+        return False
+
+    signals = [
+        'factuur', 'rekening', 'invoice', 'receipt', 'betalingsherinnering',
+        'polis', 'premie', 'abonnement', 'orderbevestiging', 'betaalinformatie',
+        'totaalbedrag', 'factuurnummer', 'invoice number', 'invoice#',
+        'btw', 'iban', 'apple invoice', 'odido rekening', 'infomedics rekening',
+        'due date', 'total', 'vat',
+    ]
+    strong_pairs = [
+        ('apple', 'invoice'),
+        ('odido', 'rekening'),
+        ('odido', 'betalingsherinnering'),
+        ('infomedics', 'rekening'),
+        ('lemonade', 'polis'),
+    ]
+    return any(signal in text for signal in signals) or any(
+        first in text and second in text for first, second in strong_pairs
+    )
 
 
 def extract_search_text(subject: str, body: str) -> str:
@@ -781,7 +814,8 @@ def generate_filename(
         'kwijtschelding',
         'kwijtscheldingsformulier',
     }
-    if (supplier in {'belastingdienst', 'dienst_toeslagen'} or category == 'belasting') and purpose in tax_purposes:
+    is_tax_purpose = (supplier in {'belastingdienst', 'dienst_toeslagen'} or category == 'belasting') and purpose in tax_purposes
+    if is_tax_purpose:
         document_type = 'belasting'
 
     semantic_document_types = {
@@ -793,12 +827,15 @@ def generate_filename(
         'offerte': 'offerte',
         'polis': 'polis',
         'verzekering': 'verzekering',
+        'betalingsherinnering': 'betalingsherinnering',
+        'betaalinformatie': 'betaalinformatie',
+        'rekening': 'rekening',
         'advies': 'advies',
         'juridisch_advies': 'juridisch_advies',
         'aankoopbewijs': 'aankoopbewijs',
         'garantiebewijs': 'garantiebewijs',
     }
-    if purpose in semantic_document_types:
+    if purpose in semantic_document_types and not is_tax_purpose:
         document_type = semantic_document_types[purpose]
 
     # Supplier provided explicitly (from detect_supplier)
@@ -908,6 +945,8 @@ def detect_purpose(ocr_text: str, subject: str, original_filename: str = '') -> 
         return 'betalingsherinnering'
     if 'betaalinformatie' in text or ('belastingdienst' in text and any(k in text for k in ['rekeningnummer', 'iban', 'termijn', 'betalen', 'betalingskenmerk'])):
         return 'betaalinformatie'
+    if 'rekening' in text and any(k in text for k in ['odido', 'infomedics', 'totaalbedrag', 'btw', 'iban', 'te betalen']):
+        return 'rekening'
 
     if any(k in text for k in ['offerte', 'quotation', 'quote number', 'offertenummer']):
         return 'offerte'

@@ -40,7 +40,13 @@ def send_search_results(customer_email: str, query: str) -> None:
 
     blocks = []
     for row in ranked:
-        link = temporary_link(row['dropbox_path'])
+        path = row['dropbox_path']
+        try:
+            link = temporary_link(path)
+        except Exception:
+            print(f"Dropbox path niet gevonden: {path}")
+            continue
+
         score = _score(row, query)
         blocks.append(f'''
             <div style="padding:12px; border:1px solid #dddddd; border-radius:8px; background:#f7f7f7; margin-bottom:10px;">
@@ -52,6 +58,17 @@ def send_search_results(customer_email: str, query: str) -> None:
                 <a href="{html_escape(link)}">Download document</a>
             </div>
         ''')
+
+    if not blocks:
+        send_html(customer_email, 'Bestand niet meer gevonden', f'''
+            Hoi,<br><br>
+            Ik vond wel gegevens die lijken te passen, maar het bestand zelf kon niet meer in Dropbox worden gevonden.<br><br>
+            Zoekopdracht:<br>
+            <b>{html_escape(query)}</b><br><br>
+            Groet,<br>
+            Bewaarhet
+        ''')
+        return
 
     send_html(customer_email, 'Document(en) gevonden', f'''
         Hoi,<br><br>
