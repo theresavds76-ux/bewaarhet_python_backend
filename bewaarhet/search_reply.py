@@ -3,8 +3,8 @@ from __future__ import annotations
 from rapidfuzz import fuzz
 
 from .config import settings
-from .database import search_documents
-from .dropbox_client import temporary_link
+from .database import mark_missing_file, search_documents
+from .dropbox_client import is_not_found_error, temporary_link
 from .mail_client import send_html
 from .utils import html_escape
 
@@ -43,8 +43,10 @@ def send_search_results(customer_email: str, query: str) -> None:
         path = row['dropbox_path']
         try:
             link = temporary_link(path)
-        except Exception:
+        except Exception as exc:
             print(f"Dropbox path niet gevonden: {path}")
+            if is_not_found_error(exc):
+                mark_missing_file(row['id'])
             continue
 
         score = _score(row, query)

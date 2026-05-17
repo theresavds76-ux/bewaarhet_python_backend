@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS documents (
     ocr_text TEXT DEFAULT '',
     year TEXT DEFAULT '',
     month TEXT DEFAULT '',
+    missing_file INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(customer_email, filename, date_received, dropbox_path)
 );
@@ -47,6 +48,8 @@ def _ensure_documents_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN document_date TEXT DEFAULT ''")
     if 'domain' not in existing_columns:
         conn.execute("ALTER TABLE documents ADD COLUMN domain TEXT DEFAULT ''")
+    if 'missing_file' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN missing_file INTEGER NOT NULL DEFAULT 0")
 
 
 def init_db() -> None:
@@ -75,6 +78,21 @@ def add_document(record: dict) -> None:
                 record.get('year', ''), record.get('month', ''),
             ),
         )
+
+
+def mark_missing_file(document_id: int) -> None:
+    with connect() as conn:
+        _ensure_documents_columns(conn)
+        conn.execute(
+            'UPDATE documents SET missing_file = 1 WHERE id = ?',
+            (document_id,),
+        )
+
+
+def all_documents() -> list[sqlite3.Row]:
+    with connect() as conn:
+        _ensure_documents_columns(conn)
+        return list(conn.execute('SELECT * FROM documents ORDER BY id'))
 
 
 SYNONYM_GROUPS = [
@@ -122,6 +140,7 @@ def search_documents(customer_email: str, query: str, limit: int = 10) -> list[s
     sql = f'''
         SELECT * FROM documents
         WHERE lower(customer_email) = ?
+        AND COALESCE(missing_file, 0) = 0
         AND (
             {' OR '.join(search_parts)}
         )
