@@ -30,6 +30,7 @@ class IncomingMail:
     body_text: str
     date_raw: str
     attachments: list[Attachment]
+    to_email: str = ''
 
     @property
     def has_attachments(self) -> bool:
@@ -89,6 +90,14 @@ def _attachments(msg: Message) -> list[Attachment]:
     return items
 
 
+def _recipient_text(msg: Message) -> str:
+    values: list[str] = []
+    for header in ('To', 'Cc', 'Delivered-To', 'X-Original-To', 'Envelope-To'):
+        for value in msg.get_all(header, []):
+            values.append(_decode(value))
+    return ' '.join(values).lower()
+
+
 def fetch_unseen() -> list[IncomingMail]:
     with imaplib.IMAP4_SSL(settings.zoho_imap_host, settings.zoho_imap_port) as imap:
         imap.login(settings.zoho_email, settings.zoho_app_password)
@@ -112,6 +121,7 @@ def fetch_unseen() -> list[IncomingMail]:
                 body_text=_body_text(msg),
                 date_raw=_decode(msg.get('Date')),
                 attachments=_attachments(msg),
+                to_email=_recipient_text(msg),
             ))
         return mails
 

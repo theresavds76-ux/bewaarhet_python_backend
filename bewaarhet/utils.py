@@ -13,13 +13,22 @@ def file_extension(filename: str) -> str:
     return Path(filename).suffix.lower()
 
 
-def is_probable_search_email(subject: str, body: str, has_attachments: bool) -> bool:
+def is_probable_search_email(
+    subject: str,
+    body: str,
+    has_attachments: bool,
+    recipient_email: str = '',
+) -> bool:
     if has_attachments:
         return False
-    text = f'{subject}\n{body}'.strip().lower()
-    request_words = ('zoek', 'vind', 'stuur', 'graag', 'opvragen', 'opzoeken', 'kan je', 'kun je')
-    document_words = ('document', 'documenten', 'bon', 'factuur', 'contract', 'belasting', 'aangifte', 'polis')
-    return any(word in text for word in request_words) and any(word in text for word in document_words)
+
+    normalized_subject = (subject or '').strip().lower()
+    if normalized_subject in {'zoek', 'search'}:
+        return True
+    if normalized_subject.startswith(('zoek:', 'search:')):
+        return True
+
+    return 'zoek@' in (recipient_email or '').lower()
 
 
 def is_document_email_without_attachment(mail) -> bool:
@@ -28,7 +37,8 @@ def is_document_email_without_attachment(mail) -> bool:
 
     subject = getattr(mail, 'subject', '') or ''
     body_text = getattr(mail, 'body_text', '') or ''
-    if is_probable_search_email(subject, body_text, False):
+    recipient_email = getattr(mail, 'to_email', '') or ''
+    if is_probable_search_email(subject, body_text, False, recipient_email):
         return False
 
     text = f'{subject}\n{body_text}'.lower()

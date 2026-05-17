@@ -820,8 +820,8 @@ assert sup9b == 'odido', f"Supplier should be odido, got {sup9b}"
 assert pur9b == 'betalingsherinnering', f"Purpose should be betalingsherinnering, got {pur9b}"
 assert fn9b == 'betalingsherinnering_odido_12-05-2026.pdf', f"Unexpected filename: {fn9b}"
 
-search_mail = TestMail('Zoek mijn factuur van Apple', 'Kun je mijn Apple factuur sturen?')
-assert not is_document_email_without_attachment(search_mail), "Search mail should not be treated as document email"
+broad_search_like_mail = TestMail('Zoek mijn factuur van Apple', 'Kun je mijn Apple factuur sturen?')
+assert is_document_email_without_attachment(broad_search_like_mail), "Broad search-like wording should not trigger search mail detection"
 
 plain_mail = TestMail('Afspraak morgen', 'Hoi, zullen we morgen om 10:00 even bellen?')
 assert not is_document_email_without_attachment(plain_mail), "Plain non-document mail should not be treated as document email"
