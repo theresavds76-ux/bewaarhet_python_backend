@@ -13,6 +13,8 @@ def _row(
     category: str = 'overig',
     domain: str = 'overig',
     ocr_preview: str = '',
+    ocr_text: str = '',
+    dropbox_path: str = '',
 ) -> dict[str, str]:
     return {
         'filename': filename,
@@ -23,6 +25,8 @@ def _row(
         'category': category,
         'domain': domain,
         'ocr_preview': ocr_preview,
+        'ocr_text': ocr_text,
+        'dropbox_path': dropbox_path,
         'year': '2026',
         'month': '05',
     }
@@ -125,6 +129,65 @@ class SearchRelevanceTests(unittest.TestCase):
         self.assertGreaterEqual(_score(lemonade, query), 85)
         self.assertGreaterEqual(_score(tax_form, query), 75)
         self.assertLess(_score(unrelated, query), _score(vitens, query))
+
+    def test_stored_note_with_password_label_scores_above_threshold(self) -> None:
+        note = _row(
+            'notitie_wachtwoord_aaa_17-05-2026.pdf',
+            category='notities',
+            purpose='notitie',
+            ocr_text='Wachtwoord: AAEUUUE',
+        )
+
+        self.assertGreaterEqual(_score(note, 'Ik zoek mijn wachtwoord'), 30)
+
+    def test_ww_alias_finds_wachtwoord_note_context(self) -> None:
+        note = _row(
+            'notitie_wachtwoord_aaa_17-05-2026.pdf',
+            category='notities',
+            purpose='notitie',
+            ocr_text='Wachtwoord voor AAA is AAEUUUE',
+        )
+
+        self.assertGreaterEqual(_score(note, 'ww AAA'), 30)
+
+    def test_unrelated_invoice_stays_below_threshold_for_password_query(self) -> None:
+        invoice = _row(
+            'factuur_kpn_17-05-2026.pdf',
+            supplier='kpn',
+            purpose='factuur',
+            category='facturen',
+            ocr_preview='Factuur KPN. Wachtwoord vergeten? Klik hier.',
+            ocr_text='Factuur KPN. Wachtwoord vergeten? Klik hier om uw account te herstellen.',
+        )
+
+        self.assertLess(_score(invoice, 'wachtwoord'), 30)
+
+    def test_notes_category_gets_credential_relevance_boost(self) -> None:
+        note = _row(
+            'notitie_17-05-2026.pdf',
+            category='notities',
+            purpose='notitie',
+            ocr_text='wachtwoord: AAEUUUE',
+        )
+        non_note = _row(
+            'document_17-05-2026.pdf',
+            category='overig',
+            ocr_text='wachtwoord: AAEUUUE',
+        )
+
+        self.assertGreater(_score(note, 'wachtwoord'), _score(non_note, 'wachtwoord'))
+        self.assertGreaterEqual(_score(note, 'wachtwoord'), 30)
+
+    def test_real_debug_case_overig_password_text_scores_above_threshold(self) -> None:
+        candidate = _row(
+            'overig_youandigoods_17-05-2026.pdf',
+            category='overig',
+            purpose='',
+            ocr_preview='Wachtwoord AAA: AAEUUUE',
+            ocr_text='Wachtwoord AAA: AAEUUUE',
+        )
+
+        self.assertGreaterEqual(_score(candidate, 'zoek wachtwoord'), 30)
 
 
 if __name__ == '__main__':

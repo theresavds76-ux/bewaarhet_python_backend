@@ -110,6 +110,25 @@ NOTE_TRIGGER_PHRASES = (
     'bewaar dit',
 )
 
+NOTE_SUBJECT_TERMS = {
+    'notitie',
+    'memo',
+    'note',
+}
+
+CREDENTIAL_NOTE_KEYWORDS = {
+    'wachtwoord',
+    'password',
+    'login',
+    'gebruikersnaam',
+    'code',
+    'pincode',
+    'sleutel',
+    'rekeningnummer',
+    'iban',
+    'afspraak',
+}
+
 
 def strip_email_signature(text: str) -> tuple[str, int]:
     """Return the user-written part of an email body and the ignored footer size."""
@@ -158,21 +177,101 @@ def strip_email_signature(text: str) -> tuple[str, int]:
 
 
 def is_note_like_content(text: str, subject: str = '', filename: str = '') -> bool:
+    subject_terms = set(clean_filename(subject or '').replace('-', '_').split('_'))
+    if subject_terms & NOTE_SUBJECT_TERMS:
+        return True
+
     haystack = f'{subject}\n{filename}\n{text}'.lower()
     haystack = re.sub(r'\s+', ' ', haystack)
-    return any(re.search(rf'(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])', haystack) for phrase in NOTE_TRIGGER_PHRASES)
+    if any(re.search(rf'(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])', haystack) for phrase in NOTE_TRIGGER_PHRASES):
+        return True
+    return is_implicit_note_like_content(text, subject, filename)
+
+
+def is_implicit_note_like_content(text: str, subject: str = '', filename: str = '') -> bool:
+    cleaned_text, _ = strip_email_signature(text)
+    body_text = re.sub(r'\s+', ' ', cleaned_text.lower()).strip()
+    haystack = f'{subject}\n{filename}\n{cleaned_text}'.lower()
+    haystack = re.sub(r'\s+', ' ', haystack).strip()
+    if not haystack or len(haystack) > 700:
+        return False
+
+    business_signals = {
+        'factuur', 'invoice', 'factuurnummer', 'invoice number', 'totaalbedrag',
+        'btw', 'betalingstermijn', 'vervaldatum', 'betalingsherinnering',
+        'orderbevestiging', 'offerte', 'contract', 'overeenkomst',
+        'huurovereenkomst', 'polis', 'polisnummer', 'belastingdienst',
+        'aanslag', 'kwijtschelding', 'aangifte', 'termijnfactuur',
+        'huurnota', 'huurbetaling', 'betalingsgegevens',
+        'bankafschrift', 'rekeningafschrift', 'betaalopdracht', 'begunstigde',
+        'saldo', 'incasso', 'machtiging',
+    }
+    if any(signal in haystack for signal in business_signals):
+        return False
+
+    credential_label_pattern = (
+        r'\b(?:wachtwoord|password|login|gebruikersnaam|code|pincode|sleutel|'
+        r'rekeningnummer|iban)\b(?:\s+(?:voor\s+)?[a-z0-9._-]+)?\s*[:=]'
+    )
+    if re.search(credential_label_pattern, haystack):
+        return True
+
+    short_body_credential_terms = {
+        'wachtwoord',
+        'password',
+        'login',
+        'code',
+        'pincode',
+    }
+    body_tokens = set(_ for _ in clean_filename(body_text).replace('-', '_').split('_') if _)
+    if len(body_text) <= 240 and body_tokens & short_body_credential_terms:
+        return True
+
+    reminder_patterns = [
+        r'\bvergeet\s+niet\b',
+        r'\bherinnering\s+voor\s+mezelf\b',
+        r'\bafspraak\b.{0,80}\b(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|vandaag|morgen)\b',
+    ]
+    if any(re.search(pattern, haystack) for pattern in reminder_patterns):
+        return True
+
+    local_reference_pattern = (
+        r'\b(?:wachtwoord|password|login|gebruikersnaam|code|pincode|sleutel)\b'
+        r'\s+(?:voor|van)\s+[a-z0-9._-]{2,}\b'
+    )
+    if re.search(local_reference_pattern, haystack):
+        return True
+
+    return False
 
 
 def detect_note_filename_hint(text: str, subject: str = '') -> str:
     cleaned_text, _ = strip_email_signature(f'{subject}\n{text}'.strip())
     compact = re.sub(r'\s+', ' ', cleaned_text).strip()
 
-    password_match = re.search(
-        r'(?i)\bwachtwoord\s+(?:voor\s+)?([A-Za-z0-9][A-Za-z0-9._-]{1,})\b',
+    labeled_match = re.search(
+        r'(?i)\b(login|code|pincode|sleutel|iban|rekeningnummer|afspraak)\s+(?:voor\s+)?([A-Za-z0-9][A-Za-z0-9._-]{1,})\s*[:=]',
         compact,
     )
-    if password_match:
-        return clean_filename(f"wachtwoord_{password_match.group(1)}")
+    if labeled_match:
+        return clean_filename(f'{labeled_match.group(1)}_{labeled_match.group(2)}')
+
+    password_context_match = re.search(
+        r'(?i)\b(?:wachtwoord|password)\s+voor\s+([A-Za-z0-9][A-Za-z0-9._-]{1,})\b',
+        compact,
+    )
+    if password_context_match:
+        return clean_filename(f"wachtwoord_{password_context_match.group(1)}")
+
+    password_label_match = re.search(
+        r'(?i)\b(?:wachtwoord|password)\s+([A-Za-z0-9][A-Za-z0-9._-]{1,})\s*[:=]',
+        compact,
+    )
+    if password_label_match:
+        return clean_filename(f"wachtwoord_{password_label_match.group(1)}")
+
+    if re.search(r'(?i)\b(?:wachtwoord|password)\b', compact):
+        return 'wachtwoord'
 
     for phrase in NOTE_TRIGGER_PHRASES:
         compact = re.sub(rf'(?i)\b{re.escape(phrase)}\b\s*:?', ' ', compact)

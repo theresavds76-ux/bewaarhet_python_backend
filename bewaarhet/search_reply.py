@@ -8,12 +8,12 @@ from .config import settings
 from .database import mark_missing_file, search_documents
 from .dropbox_client import is_not_found_error, temporary_link
 from .mail_client import send_html
-from .utils import html_escape
+from .utils import html_escape, safe_customer_folder
 
 
 WEAK_QUERY_TERMS = {
     'aan', 'bij', 'de', 'dit', 'document', 'een', 'en', 'het', 'ik', 'in',
-    'je', 'jouw', 'mijn', 'naar', 'of', 'op', 'te', 'van', 'voor', 'zoek',
+    'je', 'jouw', 'me', 'mij', 'mijn', 'naar', 'of', 'op', 'te', 'van', 'voor', 'zoek',
 }
 
 QUERY_TERM_EXPANSIONS = {
@@ -24,13 +24,71 @@ QUERY_TERM_EXPANSIONS = {
     'huurcontract': ['huur', 'contract', 'wonen', 'woning'],
     'rekening': ['rekening'],
     'polis': ['polis', 'verzekering'],
+    'wachtwoord': ['password', 'login'],
+    'password': ['wachtwoord', 'login'],
+    'login': ['wachtwoord', 'gebruikersnaam', 'account'],
+    'code': ['pincode'],
+    'pincode': ['code'],
+    'gebruikersnaam': ['login', 'account'],
+    'account': ['login', 'gebruikersnaam'],
+    'sleutel': ['code'],
 }
 
 MIN_SEARCH_RESULT_SCORE = 30
 
+CREDENTIAL_QUERY_TERMS = {
+    'wachtwoord',
+    'password',
+    'login',
+    'code',
+    'pincode',
+    'gebruikersnaam',
+    'account',
+    'sleutel',
+}
+
+CREDENTIAL_LABELS = (
+    'wachtwoord',
+    'password',
+    'login',
+    'code',
+    'pincode',
+)
+
+BUSINESS_SEARCH_CATEGORIES = {
+    'facturen',
+    'bonnen',
+    'contracten',
+    'belasting',
+}
+
+BUSINESS_SEARCH_PURPOSES = {
+    'factuur',
+    'bon',
+    'contract',
+    'huur',
+    'rekening',
+    'polis',
+    'verzekering',
+    'betalingsherinnering',
+    'betaalinformatie',
+    'betalingsregeling',
+    'aangifte',
+    'belastingaanslag',
+    'kwijtschelding',
+    'kwijtscheldingsformulier',
+}
+
+QUERY_ALIASES = {
+    'mn': 'mijn',
+    "m'n": 'mijn',
+    'ww': 'wachtwoord',
+}
+
 
 def _normalize(text: object) -> str:
-    return re.sub(r'[^a-z0-9]+', ' ', str(text or '').lower()).strip()
+    normalized = re.sub(r'[^a-z0-9]+', ' ', str(text or '').lower()).strip()
+    return ' '.join(QUERY_ALIASES.get(token, token) for token in normalized.split())
 
 
 def _tokens(text: object) -> set[str]:
@@ -86,6 +144,25 @@ def _fuzzy_boost(terms: list[str], text: str, weight: int) -> int:
     return boost
 
 
+def _is_business_document(row) -> bool:
+    category = _normalize(_row_value(row, 'category'))
+    purpose = _normalize(_row_value(row, 'purpose'))
+    return category in BUSINESS_SEARCH_CATEGORIES or purpose in BUSINESS_SEARCH_PURPOSES
+
+
+def _looks_like_credential_footer(text: str) -> bool:
+    normalized = _normalize(text)
+    footer_phrases = (
+        'wachtwoord vergeten',
+        'password forgotten',
+        'forgot password',
+        'reset password',
+        'account herstellen',
+        'klik hier',
+    )
+    return any(phrase in normalized for phrase in footer_phrases)
+
+
 def _score(row, query: str) -> int:
     terms = _query_terms(query)
     fields = {
@@ -101,6 +178,12 @@ def _score(row, query: str) -> int:
             _row_value(row, 'domain'),
         ]),
         'ocr_preview': _row_value(row, 'ocr_preview'),
+        'ocr_text': _row_value(row, 'ocr_text'),
+        'stored_text': ' '.join([
+            _row_value(row, 'ocr_preview'),
+            _row_value(row, 'ocr_text'),
+        ]),
+        'dropbox_path': _row_value(row, 'dropbox_path'),
     }
 
     filename_matches = _exact_matches(terms, fields['filename'])
@@ -108,13 +191,17 @@ def _score(row, query: str) -> int:
     purpose_title_matches = _exact_matches(terms, fields['purpose_title'])
     category_domain_matches = _exact_matches(terms, fields['category_domain'])
     ocr_preview_matches = _exact_matches(terms, fields['ocr_preview'])
+    ocr_text_matches = _exact_matches(terms, fields['ocr_text'])
+    stored_text_matches = ocr_preview_matches | ocr_text_matches
+    dropbox_path_matches = _exact_matches(terms, fields['dropbox_path'])
 
     matched_terms = (
         filename_matches
         | supplier_matches
         | purpose_title_matches
         | category_domain_matches
-        | ocr_preview_matches
+        | stored_text_matches
+        | dropbox_path_matches
     )
 
     score = 0
@@ -122,24 +209,97 @@ def _score(row, query: str) -> int:
     score += len(supplier_matches) * 25
     score += len(purpose_title_matches) * 20
     score += len(category_domain_matches) * 15
-    score += len(ocr_preview_matches) * 10
+    score += len(ocr_preview_matches) * 25
+    score += len(ocr_text_matches) * 25
+    score += len(dropbox_path_matches) * 8
 
     if len(filename_matches) >= 2:
         score += 35
     if len(matched_terms) >= 2:
         score += 10
 
+    normalized_query_terms = set(terms)
+    is_note = _normalize(_row_value(row, 'category')) == 'notities' or _normalize(_row_value(row, 'purpose')) == 'notitie'
+    is_business_document = _is_business_document(row)
+    credential_query_matches = normalized_query_terms & CREDENTIAL_QUERY_TERMS
+    stored_text = fields['stored_text']
+    has_credential_keyword = any(term in _tokens(stored_text) for term in CREDENTIAL_QUERY_TERMS)
+    has_credential_label = bool(re.search(
+        r'(?i)\b(?:' + '|'.join(re.escape(label) for label in CREDENTIAL_LABELS) + r')\b\s*[:=]',
+        stored_text,
+    ))
+
+    if is_note and credential_query_matches and (stored_text_matches or has_credential_keyword):
+        score += 35
+    if is_note and credential_query_matches and has_credential_label:
+        score += 20
+    if is_note and len(stored_text_matches & credential_query_matches) >= 1:
+        score += 10
+    if credential_query_matches and has_credential_label and not is_note and not is_business_document:
+        score += 8
+    if credential_query_matches and has_credential_keyword and not is_business_document:
+        score = max(score, MIN_SEARCH_RESULT_SCORE)
+    if (
+        credential_query_matches
+        and is_business_document
+        and not (filename_matches or supplier_matches or purpose_title_matches or category_domain_matches or dropbox_path_matches)
+        and _looks_like_credential_footer(stored_text)
+    ):
+        score = min(score, MIN_SEARCH_RESULT_SCORE - 1)
+    if credential_query_matches and not (stored_text_matches or filename_matches or purpose_title_matches or dropbox_path_matches):
+        score = min(score, 20)
+
     score += _fuzzy_boost(terms, fields['filename'], 8)
     score += _fuzzy_boost(terms, fields['supplier'], 8)
     score += _fuzzy_boost(terms, fields['purpose_title'], 6)
     score += _fuzzy_boost(terms, fields['category_domain'], 5)
     score += _fuzzy_boost(terms, fields['ocr_preview'], 3)
+    score += _fuzzy_boost(terms, fields['ocr_text'], 3)
+    score += _fuzzy_boost(terms, fields['dropbox_path'], 3)
 
     return min(100, int(score))
 
 
+def _contains_query_match(text: str, terms: list[str]) -> bool:
+    return bool(_exact_matches(terms, text))
+
+
+def _log_search_debug(customer_email: str, query: str, rows: list) -> None:
+    terms = _query_terms(query)
+    cleaned_query = ' '.join(terms)
+    ranked = sorted(
+        ((_score(row, query), row) for row in rows),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+
+    print("[search-debug] begin")
+    print(f"[search-debug] sender email: {customer_email}")
+    print(f"[search-debug] safe_customer_folder: {safe_customer_folder(customer_email)}")
+    print(f"[search-debug] cleaned query: {cleaned_query}")
+    print(f"[search-debug] candidate records loaded from SQLite: {len(rows)}")
+
+    for index, (score, row) in enumerate(ranked[:5], start=1):
+        ocr_preview = _row_value(row, 'ocr_preview')
+        ocr_text = _row_value(row, 'ocr_text')
+        rejected_reason = ''
+        if score < MIN_SEARCH_RESULT_SCORE:
+            rejected_reason = f'score {score} below threshold {MIN_SEARCH_RESULT_SCORE}'
+        print(f"[search-debug] candidate {index}")
+        print(f"[search-debug] filename: {_row_value(row, 'filename')}")
+        print(f"[search-debug] category: {_row_value(row, 'category')}")
+        print(f"[search-debug] purpose: {_row_value(row, 'purpose')}")
+        print(f"[search-debug] ocr_preview contains query? {'yes' if _contains_query_match(ocr_preview, terms) else 'no'}")
+        print(f"[search-debug] ocr_text contains query? {'yes' if _contains_query_match(ocr_text, terms) else 'no'}")
+        print(f"[search-debug] score: {score}")
+        if rejected_reason:
+            print(f"[search-debug] reason rejected: {rejected_reason}")
+    print("[search-debug] end")
+
+
 def send_search_results(customer_email: str, query: str) -> None:
     rows = search_documents(customer_email, query, settings.search_result_limit)
+    _log_search_debug(customer_email, query, rows)
     ranked = sorted(
         ((_score(row, query), row) for row in rows),
         key=lambda item: item[0],

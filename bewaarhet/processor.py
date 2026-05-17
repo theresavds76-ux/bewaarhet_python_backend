@@ -137,6 +137,18 @@ def _log_semantic_debug(category: str, purpose: str, ignored_signature_chars: in
     print(f"[semantic-debug] ignored signature/footer length: {ignored_signature_chars}")
 
 
+def _log_storage_debug(record: dict, searchable_text: str) -> None:
+    print("[storage-debug] begin")
+    print(f"[storage-debug] customer_email: {record.get('customer_email', '')}")
+    print(f"[storage-debug] safe_customer_folder: {record.get('safe_customer_folder', '')}")
+    print(f"[storage-debug] category: {record.get('category', '')}")
+    print(f"[storage-debug] filename: {record.get('filename', '')}")
+    print(f"[storage-debug] ocr_preview length: {len(record.get('ocr_preview', '') or '')}")
+    print(f"[storage-debug] ocr_text length: {len(record.get('ocr_text', '') or '')}")
+    print(f"[storage-debug] first 200 searchable chars: {(searchable_text or '')[:200]}")
+    print("[storage-debug] end")
+
+
 def _is_allowed(att: Attachment) -> bool:
     extension = file_extension(att.filename)
     return extension in settings.allowed_extensions and extension not in BLOCKED_EXTENSIONS
@@ -260,7 +272,7 @@ def process_document_body_mail(mail: IncomingMail) -> None:
     print(f"Documentmail opgeslagen als PDF: {new_filename}")
     print(f"Geupload naar Dropbox: {path}")
 
-    add_document({
+    record = {
         'customer_email': mail.from_email,
         'safe_customer_folder': customer,
         'category': category,
@@ -277,7 +289,9 @@ def process_document_body_mail(mail: IncomingMail) -> None:
         'ocr_text': semantic_text,
         'year': year,
         'month': month,
-    })
+    }
+    _log_storage_debug(record, semantic_text)
+    add_document(record)
 
     print("Opgeslagen in SQLite.")
 
@@ -349,7 +363,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
         print(f"Geüpload naar Dropbox: {path}")
         print(f"Nieuwe bestandsnaam: {new_filename}")   
 
-        add_document({
+        record = {
             'customer_email': mail.from_email,
             'safe_customer_folder': customer,
             'category': category,
@@ -366,7 +380,9 @@ def process_upload_mail(mail: IncomingMail) -> None:
             'ocr_text': ocr_text,
             'year': year,
             'month': month,
-        })
+        }
+        _log_storage_debug(record, ocr_text)
+        add_document(record)
 
         print("Opgeslagen in SQLite.")
 

@@ -18,6 +18,7 @@ def _row(
     category: str = 'facturen',
     domain: str = 'overig',
     ocr_preview: str = '',
+    ocr_text: str = '',
 ) -> dict[str, str | int]:
     return {
         'id': document_id,
@@ -29,7 +30,7 @@ def _row(
         'category': category,
         'domain': domain,
         'ocr_preview': ocr_preview,
-        'ocr_text': '',
+        'ocr_text': ocr_text,
         'year': '2026',
         'month': '05',
         'date_received': '2026-05-17',
@@ -167,6 +168,98 @@ class SearchReplyTests(unittest.TestCase):
         self.assertIn('polis_lemonade_17-05-2026.pdf', html)
         self.assertNotIn('factuur_infomedics_17-05-2026.pdf', html)
         self.assertNotIn('factuur_onbekend_17-05-2026.pdf', html)
+
+    def test_password_note_is_returned_for_natural_search_request(self) -> None:
+        rows = [
+            _row(
+                'notitie_wachtwoord_aaa_17-05-2026.pdf',
+                '/notities/notitie_wachtwoord_aaa_17-05-2026.pdf',
+                1,
+                purpose='notitie',
+                category='notities',
+                ocr_text='Wachtwoord: AAEUUUE',
+            ),
+            _row(
+                'factuur_kpn_17-05-2026.pdf',
+                '/facturen/factuur_kpn_17-05-2026.pdf',
+                2,
+                supplier='kpn',
+                purpose='factuur',
+                category='facturen',
+                ocr_text='Factuur KPN. Wachtwoord vergeten? Klik hier.',
+            ),
+        ]
+
+        output = StringIO()
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link', return_value='https://example.com/note') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+            redirect_stdout(output),
+        ):
+            send_search_results('user@example.com', 'Ik zoek mijn wachtwoord')
+
+        temporary_link.assert_called_once_with('/notities/notitie_wachtwoord_aaa_17-05-2026.pdf')
+        html = send_html.call_args.args[2]
+        self.assertIn('notitie_wachtwoord_aaa_17-05-2026.pdf', html)
+        self.assertNotIn('factuur_kpn_17-05-2026.pdf', html)
+        self.assertIn('[search-debug] sender email: user@example.com', output.getvalue())
+        self.assertIn('[search-debug] safe_customer_folder: user_at_example.com', output.getvalue())
+        self.assertIn('[search-debug] cleaned query: wachtwoord password login', output.getvalue())
+        self.assertIn('[search-debug] candidate records loaded from SQLite: 2', output.getvalue())
+        self.assertIn('[search-debug] filename: notitie_wachtwoord_aaa_17-05-2026.pdf', output.getvalue())
+        self.assertIn('[search-debug] ocr_text contains query? yes', output.getvalue())
+
+    def test_unrelated_invoice_is_not_returned_for_password_query(self) -> None:
+        rows = [
+            _row(
+                'factuur_kpn_17-05-2026.pdf',
+                '/facturen/factuur_kpn_17-05-2026.pdf',
+                1,
+                supplier='kpn',
+                purpose='factuur',
+                category='facturen',
+                ocr_preview='Factuur KPN. Wachtwoord vergeten? Klik hier.',
+                ocr_text='Factuur KPN. Wachtwoord vergeten? Klik hier.',
+            ),
+        ]
+
+        output = StringIO()
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+            redirect_stdout(output),
+        ):
+            send_search_results('user@example.com', 'wachtwoord')
+
+        temporary_link.assert_not_called()
+        self.assertEqual(send_html.call_args.args[1], 'Geen passend document gevonden')
+        self.assertIn('[search-debug] reason rejected: score', output.getvalue())
+
+    def test_real_debug_case_overig_password_text_is_returned(self) -> None:
+        rows = [
+            _row(
+                'overig_youandigoods_17-05-2026.pdf',
+                '/overig/overig_youandigoods_17-05-2026.pdf',
+                1,
+                purpose='',
+                category='overig',
+                ocr_preview='Wachtwoord AAA: AAEUUUE',
+                ocr_text='Wachtwoord AAA: AAEUUUE',
+            ),
+        ]
+
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link', return_value='https://example.com/document') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+        ):
+            send_search_results('user@example.com', 'zoek wachtwoord')
+
+        temporary_link.assert_called_once_with('/overig/overig_youandigoods_17-05-2026.pdf')
+        self.assertEqual(send_html.call_args.args[1], 'Document(en) gevonden')
+        self.assertIn('overig_youandigoods_17-05-2026.pdf', send_html.call_args.args[2])
 
 
 if __name__ == '__main__':

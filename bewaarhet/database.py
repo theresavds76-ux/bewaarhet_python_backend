@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -122,7 +123,32 @@ SYNONYM_GROUPS = [
     {'abonnementen', 'abonnement', 'telecom', 'streaming', 'lidmaatschap'},
     {'financien', 'bank', 'bankafschrift', 'rekeningafschrift', 'lening', 'hypotheek', 'creditcard'},
     {'schoonheidssalon', 'nagels', 'manicure', 'beauty', 'salon'},
+    {'wachtwoord', 'password', 'login', 'gebruikersnaam', 'account', 'ww'},
+    {'code', 'pincode', 'sleutel'},
 ]
+
+SEARCH_FILLER_WORDS = {
+    'aan', 'bij', 'de', 'dit', 'document', 'een', 'en', 'het', 'ik', 'in',
+    'je', 'jouw', 'me', 'mij', 'mijn', 'naar', 'of', 'op', 'te', 'van',
+    'voor', 'zoek', 'vind', 'stuur', 'graag',
+}
+
+SEARCH_ALIASES = {
+    'mn': 'mijn',
+    "m'n": 'mijn',
+    'ww': 'wachtwoord',
+}
+
+
+def _query_terms(query: str) -> list[str]:
+    normalized = re.sub(r'[^a-z0-9]+', ' ', (query or '').lower())
+    terms = [
+        SEARCH_ALIASES.get(term, term)
+        for term in normalized.split()
+        if len(term) > 1
+    ]
+    filtered = [term for term in terms if term not in SEARCH_FILLER_WORDS]
+    return filtered or [term for term in terms if term] or [normalized.strip()]
 
 
 def _expand_search_terms(terms: list[str]) -> list[str]:
@@ -136,11 +162,7 @@ def _expand_search_terms(terms: list[str]) -> list[str]:
 
 
 def search_documents(customer_email: str, query: str, limit: int = 10) -> list[sqlite3.Row]:
-    terms = [t.lower() for t in query.split() if len(t) > 1]
-    if not terms:
-        terms = [query.lower()]
-
-    terms = _expand_search_terms(terms)
+    terms = _expand_search_terms(_query_terms(query))
 
     search_parts = []
     params: list[str] = [customer_email.lower()]
@@ -148,9 +170,9 @@ def search_documents(customer_email: str, query: str, limit: int = 10) -> list[s
     for term in terms:
         like = f'%{term}%'
         search_parts.append(
-            '(lower(filename) LIKE ? OR lower(category) LIKE ? OR lower(domain) LIKE ? OR lower(supplier) LIKE ? OR lower(purpose) LIKE ? OR lower(title) LIKE ? OR lower(ocr_preview) LIKE ? OR lower(ocr_text) LIKE ? OR year LIKE ? OR month LIKE ?)'
+            '(lower(filename) LIKE ? OR lower(category) LIKE ? OR lower(domain) LIKE ? OR lower(supplier) LIKE ? OR lower(purpose) LIKE ? OR lower(title) LIKE ? OR lower(ocr_preview) LIKE ? OR lower(ocr_text) LIKE ? OR lower(dropbox_path) LIKE ? OR year LIKE ? OR month LIKE ?)'
         )
-        params.extend([like, like, like, like, like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like, like, like, like, like])
 
     sql = f'''
         SELECT * FROM documents
