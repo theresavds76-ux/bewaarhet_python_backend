@@ -57,6 +57,50 @@ def clean_filename(text: str) -> str:
     return text.strip('_')
 
 
+def extract_labeled_value(ocr_text: str, labels: list[str], stop_labels: list[str] | None = None) -> str:
+    """Extract a value from OCR text after an exact label, inline or on the next line."""
+    if not ocr_text:
+        return ''
+
+    normalized = (
+        ocr_text
+        .replace('\r\n', '\n')
+        .replace('\r', '\n')
+        .replace('\u00a0', ' ')
+        .replace('：', ':')
+    )
+    lines = [re.sub(r'\s+', ' ', line).strip() for line in normalized.split('\n')]
+    all_labels = sorted(set(labels + (stop_labels or [])), key=len, reverse=True)
+    label_pattern = '|'.join(re.escape(label) for label in all_labels)
+
+    def split_label(line: str) -> tuple[str, str] | None:
+        match = re.match(rf'(?i)^({label_pattern})\s*(?:[:\-]\s*)?(.*)$', line)
+        if not match:
+            return None
+        value = (match.group(2) or '').strip()
+        if value and any(re.fullmatch(rf'(?i){re.escape(label)}\s*[:\-]?', value) for label in all_labels):
+            value = ''
+        return match.group(1).lower(), value
+
+    wanted = {label.lower() for label in labels}
+    for index, line in enumerate(lines):
+        if not line:
+            continue
+        parsed = split_label(line)
+        if not parsed or parsed[0] not in wanted:
+            continue
+        if parsed[1]:
+            return parsed[1].strip()
+
+        for next_line in lines[index + 1:index + 5]:
+            if not next_line:
+                continue
+            if split_label(next_line):
+                break
+            return next_line.strip()
+    return ''
+
+
 def is_generic_supplier_word(value: str | None) -> bool:
     """Check if a word is too generic to be a meaningful supplier."""
     if not value:
@@ -280,17 +324,18 @@ def detect_supplier(ocr_text: str, subject: str, original_filename: str, sender_
         return '_'.join(words[:3])
 
     def detect_labeled_supplier(text: str) -> str:
-        label_patterns = [
-            r'(?im)^\s*(manufacturer|fabrikant|supplier|leverancier|issued by|producent)\s*[:\-]\s*(.+)$',
-            r'(?im)^\s*(manufacturer|fabrikant|supplier|leverancier|issued by|producent)\s*[:\-]?\s*$\s*^(.+)$',
-        ]
-        for pattern in label_patterns:
-            match = re.search(pattern, text or '')
-            if not match:
-                continue
-            candidate = clean_organization_candidate(match.group(2))
-            if candidate and has_meaningful_supplier_part(candidate):
-                return candidate
+        candidate = extract_labeled_value(
+            text or '',
+            ['manufacturer', 'fabrikant', 'supplier', 'leverancier', 'issued by', 'producent'],
+            [
+                'product name', 'product', 'main model', 'model', 'model no', 'model number',
+                'trade mark', 'trademark', 'brand', 'series', 'applicant', 'certificate no',
+                'report no', 'standard',
+            ],
+        )
+        candidate = clean_organization_candidate(candidate)
+        if candidate and has_meaningful_supplier_part(candidate):
+            return candidate
         return ''
 
     # Check header first for strong matches
@@ -424,21 +469,17 @@ def is_own_outgoing_invoice(ocr_text: str, supplier: str) -> bool:
 def detect_certificate_filename_parts(ocr_text: str) -> list[str]:
     """Extract manufacturer/model/product parts for compliance certificates."""
     text = ocr_text or ''
+    stop_labels = [
+        'manufacturer', 'fabrikant', 'supplier', 'leverancier', 'issued by', 'producent',
+        'product name', 'product', 'artikel', 'main model', 'model', 'model no',
+        'model number', 'type', 'trade mark', 'trademark', 'brand', 'merk',
+        'series', 'applicant', 'certificate no', 'report no', 'standard',
+        'declaration of conformity',
+    ]
 
-    def value_for(labels: list[str]) -> str:
-        for label in labels:
-            escaped_label = re.escape(label)
-            match = re.search(rf'(?im)^\s*{escaped_label}\s*[:\-]\s*(.+)$', text)
-            if match:
-                return match.group(1).strip()
-            match = re.search(rf'(?im)^\s*{escaped_label}\s*[:\-]?\s*$\s*^(.+)$', text)
-            if match:
-                return match.group(1).strip()
-        return ''
-
-    maker = value_for(['manufacturer', 'fabrikant', 'trade mark', 'trademark', 'brand', 'merk'])
-    product = value_for(['product name', 'product', 'artikel'])
-    model = value_for(['main model', 'model', 'model no', 'model number', 'type'])
+    maker = extract_labeled_value(text, ['manufacturer', 'fabrikant'], stop_labels)
+    product = extract_labeled_value(text, ['product name', 'product', 'artikel'], stop_labels)
+    model = extract_labeled_value(text, ['main model', 'model no', 'model number', 'model', 'type'], stop_labels)
 
     maker_clean = clean_filename(maker)
     location_prefixes = {'dongguan', 'shenzhen', 'guangzhou', 'ningbo', 'yiwu'}

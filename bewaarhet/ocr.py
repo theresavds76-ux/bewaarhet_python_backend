@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from io import BytesIO
 import mimetypes
+from pathlib import Path
 
 import requests
 from .config import settings
+
+OCR_SPACE_MAX_UPLOAD_BYTES = 1_350_000
+OCR_IMAGE_MAX_DIMENSION = 2200
+OCR_IMAGE_MIN_DIMENSION = 800
 
 
 def _debug_ocr_space_empty(reason: str, response=None, data=None, exc: Exception | None = None) -> None:
@@ -27,13 +33,68 @@ def _debug_ocr_space_empty(reason: str, response=None, data=None, exc: Exception
         print(f"DEBUG OCR_SPACE exception={type(exc).__name__}: {exc}")
 
 
+def _prepare_image_for_ocr_upload(file_bytes: bytes, filename: str) -> tuple[bytes, str, str]:
+    """Return temporary upload bytes small enough for OCR.space's free-plan limit."""
+    mime_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+    extension = Path(filename).suffix.lower()
+    if len(file_bytes) <= OCR_SPACE_MAX_UPLOAD_BYTES:
+        return file_bytes, filename, mime_type
+    if extension not in {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}:
+        return file_bytes, filename, mime_type
+
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as exc:
+        print(f"DEBUG OCR_SPACE image_downscale_skipped=missing_pillow original_bytes={len(file_bytes)}")
+        return file_bytes, filename, mime_type
+
+    try:
+        with Image.open(BytesIO(file_bytes)) as image:
+            image = ImageOps.exif_transpose(image)
+            image = image.convert('RGB')
+            resample_filter = getattr(getattr(Image, 'Resampling', Image), 'LANCZOS')
+
+            best_bytes = file_bytes
+            max_dimension = OCR_IMAGE_MAX_DIMENSION
+            while max_dimension >= OCR_IMAGE_MIN_DIMENSION:
+                resized = image.copy()
+                resized.thumbnail((max_dimension, max_dimension), resample_filter)
+                for quality in (86, 82, 78, 74, 70, 66, 62, 58, 54, 50, 46):
+                    buffer = BytesIO()
+                    resized.save(buffer, format='JPEG', quality=quality, optimize=True, progressive=True)
+                    candidate = buffer.getvalue()
+                    if len(candidate) < len(best_bytes):
+                        best_bytes = candidate
+                    if len(candidate) <= OCR_SPACE_MAX_UPLOAD_BYTES:
+                        upload_name = str(Path(filename).with_suffix('.jpg'))
+                        print(
+                            "DEBUG OCR_SPACE image_downscaled="
+                            f"true original_bytes={len(file_bytes)} upload_bytes={len(candidate)} "
+                            f"max_dimension={max_dimension} quality={quality}"
+                        )
+                        return candidate, upload_name, 'image/jpeg'
+                max_dimension -= 200
+
+            if len(best_bytes) < len(file_bytes):
+                upload_name = str(Path(filename).with_suffix('.jpg'))
+                print(
+                    "DEBUG OCR_SPACE image_downscaled="
+                    f"partial original_bytes={len(file_bytes)} upload_bytes={len(best_bytes)}"
+                )
+                return best_bytes, upload_name, 'image/jpeg'
+    except Exception as exc:
+        print(f"DEBUG OCR_SPACE image_downscale_failed={type(exc).__name__}: {exc}")
+
+    return file_bytes, filename, mime_type
+
+
 def ocr_space(file_bytes: bytes, filename: str) -> str:
     if not settings.ocr_space_api_key:
         _debug_ocr_space_empty('missing_api_key')
         return ''
 
     try:
-        mime_type = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+        upload_bytes, upload_filename, mime_type = _prepare_image_for_ocr_upload(file_bytes, filename)
         response = requests.post(
             'https://api.ocr.space/parse/image',
             headers={'apikey': settings.ocr_space_api_key},
@@ -45,7 +106,7 @@ def ocr_space(file_bytes: bytes, filename: str) -> str:
                 'isTable': 'false',
                 'detectOrientation': 'true',
             },
-            files={'file': (filename, file_bytes, mime_type)},
+            files={'file': (upload_filename, upload_bytes, mime_type)},
             timeout=180,
         )
 
