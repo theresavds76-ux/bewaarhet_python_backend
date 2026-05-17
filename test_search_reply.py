@@ -8,13 +8,27 @@ from unittest.mock import patch
 from bewaarhet.search_reply import send_search_results
 
 
-def _row(filename: str, path: str, document_id: int = 1) -> dict[str, str | int]:
+def _row(
+    filename: str,
+    path: str,
+    document_id: int = 1,
+    *,
+    supplier: str = '',
+    purpose: str = 'factuur',
+    category: str = 'facturen',
+    domain: str = 'overig',
+    ocr_preview: str = '',
+) -> dict[str, str | int]:
     return {
         'id': document_id,
         'filename': filename,
-        'category': 'facturen',
-        'domain': 'overig',
-        'ocr_preview': '',
+        'supplier': supplier,
+        'purpose': purpose,
+        'title': '',
+        'original_filename': '',
+        'category': category,
+        'domain': domain,
+        'ocr_preview': ocr_preview,
         'ocr_text': '',
         'year': '2026',
         'month': '05',
@@ -81,6 +95,62 @@ class SearchReplyTests(unittest.TestCase):
             'Ik vond wel gegevens die lijken te passen, maar het bestand zelf kon niet meer in Dropbox worden gevonden.',
             html,
         )
+
+    def test_polis_lemonade_returns_only_relevant_result(self) -> None:
+        rows = [
+            _row('polis_lemonade_17-05-2026.pdf', '/polis.pdf', 1, supplier='lemonade', purpose='polis'),
+            _row('factuur_infomedics_17-05-2026.pdf', '/infomedics.pdf', 2, supplier='infomedics', purpose='factuur'),
+        ]
+
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link', return_value='https://example.com/document') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+        ):
+            send_search_results('user@example.com', 'polis lemonade')
+
+        temporary_link.assert_called_once_with('/polis.pdf')
+        send_html.assert_called_once()
+        html = send_html.call_args.args[2]
+        self.assertIn('polis_lemonade_17-05-2026.pdf', html)
+        self.assertNotIn('factuur_infomedics_17-05-2026.pdf', html)
+
+    def test_unrelated_zero_score_result_is_excluded(self) -> None:
+        rows = [
+            _row('factuur_infomedics_17-05-2026.pdf', '/infomedics.pdf', 1, supplier='infomedics', purpose='factuur'),
+        ]
+
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+        ):
+            send_search_results('user@example.com', 'polis lemonade')
+
+        temporary_link.assert_not_called()
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Geen passend document gevonden')
+
+    def test_result_list_is_not_padded_with_irrelevant_rows(self) -> None:
+        rows = [
+            _row('polis_lemonade_17-05-2026.pdf', '/polis.pdf', 1, supplier='lemonade', purpose='polis'),
+            _row('factuur_infomedics_17-05-2026.pdf', '/infomedics.pdf', 2, supplier='infomedics', purpose='factuur'),
+            _row('factuur_onbekend_17-05-2026.pdf', '/unknown.pdf', 3, supplier='onbekend', purpose='factuur'),
+        ]
+
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link', return_value='https://example.com/document') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+        ):
+            send_search_results('user@example.com', 'polis lemonade')
+
+        temporary_link.assert_called_once_with('/polis.pdf')
+        html = send_html.call_args.args[2]
+        self.assertEqual(html.count('Download document'), 1)
+        self.assertIn('polis_lemonade_17-05-2026.pdf', html)
+        self.assertNotIn('factuur_infomedics_17-05-2026.pdf', html)
+        self.assertNotIn('factuur_onbekend_17-05-2026.pdf', html)
 
 
 if __name__ == '__main__':

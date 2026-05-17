@@ -26,6 +26,8 @@ QUERY_TERM_EXPANSIONS = {
     'polis': ['polis', 'verzekering'],
 }
 
+MIN_SEARCH_RESULT_SCORE = 10
+
 
 def _normalize(text: object) -> str:
     return re.sub(r'[^a-z0-9]+', ' ', str(text or '').lower()).strip()
@@ -138,9 +140,18 @@ def _score(row, query: str) -> int:
 
 def send_search_results(customer_email: str, query: str) -> None:
     rows = search_documents(customer_email, query, settings.search_result_limit)
-    ranked = sorted(rows, key=lambda r: _score(r, query), reverse=True)
+    ranked = sorted(
+        ((_score(row, query), row) for row in rows),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    relevant = [
+        (score, row)
+        for score, row in ranked
+        if score >= MIN_SEARCH_RESULT_SCORE
+    ]
 
-    if not ranked:
+    if not relevant:
         send_html(customer_email, 'Geen passend document gevonden', f'''
             Hoi,<br><br>
             Ik kon geen passend document vinden bij je zoekopdracht:<br><br>
@@ -158,7 +169,7 @@ def send_search_results(customer_email: str, query: str) -> None:
         return
 
     blocks = []
-    for row in ranked:
+    for score, row in relevant:
         path = row['dropbox_path']
         try:
             link = temporary_link(path)
