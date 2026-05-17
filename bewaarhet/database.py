@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS documents (
     original_filename TEXT DEFAULT '',
     document_date TEXT DEFAULT '',
     domain TEXT DEFAULT '',
+    supplier TEXT DEFAULT '',
+    purpose TEXT DEFAULT '',
+    title TEXT DEFAULT '',
     ocr_preview TEXT DEFAULT '',
     ocr_text TEXT DEFAULT '',
     year TEXT DEFAULT '',
@@ -48,6 +51,12 @@ def _ensure_documents_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN document_date TEXT DEFAULT ''")
     if 'domain' not in existing_columns:
         conn.execute("ALTER TABLE documents ADD COLUMN domain TEXT DEFAULT ''")
+    if 'supplier' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN supplier TEXT DEFAULT ''")
+    if 'purpose' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN purpose TEXT DEFAULT ''")
+    if 'title' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN title TEXT DEFAULT ''")
     if 'missing_file' not in existing_columns:
         conn.execute("ALTER TABLE documents ADD COLUMN missing_file INTEGER NOT NULL DEFAULT 0")
 
@@ -66,14 +75,16 @@ def add_document(record: dict) -> None:
             '''
             INSERT OR REPLACE INTO documents
             (customer_email, safe_customer_folder, category, filename, date_received,
-             dropbox_path, original_filename, document_date, domain, ocr_preview, ocr_text, year, month)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             dropbox_path, original_filename, document_date, domain, supplier, purpose, title,
+             ocr_preview, ocr_text, year, month)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 record['customer_email'], record['safe_customer_folder'], record['category'],
                 record['filename'], record['date_received'], record['dropbox_path'],
                 record.get('original_filename', ''), record.get('document_date', ''),
                 record.get('domain', ''),
+                record.get('supplier', ''), record.get('purpose', ''), record.get('title', ''),
                 record.get('ocr_preview', ''), record.get('ocr_text', ''),
                 record.get('year', ''), record.get('month', ''),
             ),
@@ -96,7 +107,11 @@ def all_documents() -> list[sqlite3.Row]:
 
 
 SYNONYM_GROUPS = [
-    {'belasting', 'btw', 'aangifte', 'belastingdienst', 'aanslag', 'loonheffing', 'omzetbelasting'},
+    {
+        'belasting', 'belastingformulier', 'formulier', 'kwijtschelding',
+        'kwijtscheldingsformulier', 'gemeentebelastingen', 'btw', 'aangifte',
+        'belastingdienst', 'aanslag', 'loonheffing', 'omzetbelasting',
+    },
     {'wonen', 'woning', 'huis', 'huur', 'woningbouw', 'woningcorporatie', 'huurcontract'},
     {'zorg', 'tandarts', 'huisarts', 'apotheek', 'ziekenhuis', 'fysiotherapeut', 'zorgverzekering'},
     {'verzekeringen', 'verzekering', 'verzekeraar', 'polis', 'premie', 'schadeclaim'},
@@ -133,9 +148,9 @@ def search_documents(customer_email: str, query: str, limit: int = 10) -> list[s
     for term in terms:
         like = f'%{term}%'
         search_parts.append(
-            '(lower(filename) LIKE ? OR lower(category) LIKE ? OR lower(domain) LIKE ? OR lower(ocr_preview) LIKE ? OR lower(ocr_text) LIKE ? OR year LIKE ? OR month LIKE ?)'
+            '(lower(filename) LIKE ? OR lower(category) LIKE ? OR lower(domain) LIKE ? OR lower(supplier) LIKE ? OR lower(purpose) LIKE ? OR lower(title) LIKE ? OR lower(ocr_preview) LIKE ? OR lower(ocr_text) LIKE ? OR year LIKE ? OR month LIKE ?)'
         )
-        params.extend([like, like, like, like, like, like, like])
+        params.extend([like, like, like, like, like, like, like, like, like, like])
 
     sql = f'''
         SELECT * FROM documents
