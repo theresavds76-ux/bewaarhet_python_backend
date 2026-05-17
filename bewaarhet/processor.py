@@ -11,12 +11,10 @@ from .mail_client import Attachment, IncomingMail, mark_as_seen
 from .ocr import ocr_space
 from .search_reply import send_search_results
 from .utils import (
-    clean_filename,
     extract_search_text,
     file_extension,
     generate_filename,
     is_probable_search_email,
-    is_randomish_filename_stem,
     safe_customer_folder,
     detect_supplier,
     detect_purpose,
@@ -67,39 +65,6 @@ def _too_large(att: Attachment) -> bool:
     return att.size > settings.max_attachment_mb * 1024 * 1024
 
 
-def _debug_preview(value: str, limit: int = 500) -> str:
-    value = (value or '').replace('\r', ' ').replace('\n', ' ')
-    value = ' '.join(value.split())
-    return value[:limit]
-
-
-def _fallback_reasons(
-    original_filename: str,
-    ocr_text: str,
-    category: str,
-    supplier: str,
-    purpose: str,
-    generated_filename: str,
-) -> list[str]:
-    reasons: list[str] = []
-    original_stem = clean_filename(original_filename.rsplit('.', 1)[0])
-
-    if not (ocr_text or '').strip():
-        reasons.append('ocr_empty_or_unreadable')
-    if category == 'overig':
-        reasons.append('category_overig')
-    if supplier == 'onbekend':
-        reasons.append('supplier_onbekend')
-    if not purpose:
-        reasons.append('purpose_empty')
-    if original_stem and original_stem in generated_filename:
-        reasons.append('generated_filename_uses_original_stem')
-    if is_randomish_filename_stem(original_filename):
-        reasons.append('original_filename_random_or_image_like')
-
-    return reasons or ['none']
-
-
 def process_upload_mail(mail: IncomingMail) -> None:
     customer = safe_customer_folder(mail.from_email)
     date_received, year, month = _received_parts(mail)
@@ -123,19 +88,9 @@ def process_upload_mail(mail: IncomingMail) -> None:
             mail.body_text[:500],
         )
 
-        print(f"DEBUG original_filename={att.filename}")
-        print(f"DEBUG subject={mail.subject}")
-        print(f"DEBUG ocr_length={len(ocr_text or '')}")
-        print(f"DEBUG ocr_preview={_debug_preview(ocr_text)}")
-
         supplier = detect_supplier(ocr_text, mail.subject, att.filename, mail.from_email)
         purpose = detect_purpose(ocr_text, mail.subject)
         domain = detect_domain(ocr_text, mail.subject, att.filename, supplier, purpose)
-
-        print(f"DEBUG detected_category={category}")
-        print(f"DEBUG detected_supplier={supplier}")
-        print(f"DEBUG detected_purpose={purpose}")
-        print(f"DEBUG detected_domain={domain}")
 
         new_filename, document_date = generate_filename(
             category,
@@ -147,14 +102,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
             purpose=purpose,
         )
 
-        print(f"DEBUG generated_filename_pre_collision={new_filename}")
-        print(
-            "DEBUG fallback_reasons="
-            + ','.join(_fallback_reasons(att.filename, ocr_text, category, supplier, purpose, new_filename))
-        )
-
         new_filename = _resolve_filename_collision(customer, category, new_filename)
-        print(f"DEBUG generated_filename_final={new_filename}")
 
         path = _dropbox_path(customer, category, new_filename)
         upload_file(att.content, path)
