@@ -97,6 +97,9 @@ def extract_labeled_value(ocr_text: str, labels: list[str], stop_labels: list[st
             value = ''
         return match.group(1).lower(), value
 
+    def clean_labeled_value(value: str) -> str:
+        return re.sub(r'^\s*[:\-]\s*', '', value or '').strip()
+
     wanted = {label.lower() for label in labels}
     for index, line in enumerate(lines):
         if not line:
@@ -105,14 +108,16 @@ def extract_labeled_value(ocr_text: str, labels: list[str], stop_labels: list[st
         if not parsed or parsed[0] not in wanted:
             continue
         if parsed[1]:
-            return parsed[1].strip()
+            return clean_labeled_value(parsed[1])
 
-        for next_line in lines[index + 1:index + 5]:
+        for next_line in lines[index + 1:index + 3]:
             if not next_line:
                 continue
             if split_label(next_line):
                 break
-            return next_line.strip()
+            value = clean_labeled_value(next_line)
+            if value:
+                return value
     return ''
 
 
