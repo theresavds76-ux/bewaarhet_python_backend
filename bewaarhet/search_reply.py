@@ -26,7 +26,7 @@ QUERY_TERM_EXPANSIONS = {
     'polis': ['polis', 'verzekering'],
 }
 
-MIN_SEARCH_RESULT_SCORE = 10
+MIN_SEARCH_RESULT_SCORE = 30
 
 
 def _normalize(text: object) -> str:

@@ -40,8 +40,8 @@ def _row(
 class SearchReplyTests(unittest.TestCase):
     def test_skips_missing_dropbox_path_and_sends_remaining_results(self) -> None:
         rows = [
-            _row('missing.pdf', '/missing.pdf', 1),
-            _row('found.pdf', '/found.pdf', 2),
+            _row('factuur_missing.pdf', '/missing.pdf', 1),
+            _row('factuur_found.pdf', '/found.pdf', 2),
         ]
 
         def temporary_link(path: str) -> str:
@@ -65,13 +65,13 @@ class SearchReplyTests(unittest.TestCase):
         subject = send_html.call_args.args[1]
         html = send_html.call_args.args[2]
         self.assertEqual(subject, 'Document(en) gevonden')
-        self.assertIn('found.pdf', html)
-        self.assertNotIn('missing.pdf', html)
+        self.assertIn('factuur_found.pdf', html)
+        self.assertNotIn('factuur_missing.pdf', html)
 
     def test_sends_friendly_mail_when_all_matched_rows_are_missing(self) -> None:
         rows = [
-            _row('missing-1.pdf', '/missing-1.pdf', 1),
-            _row('missing-2.pdf', '/missing-2.pdf', 2),
+            _row('factuur_missing-1.pdf', '/missing-1.pdf', 1),
+            _row('factuur_missing-2.pdf', '/missing-2.pdf', 2),
         ]
 
         output = StringIO()
@@ -126,6 +126,22 @@ class SearchReplyTests(unittest.TestCase):
             patch('bewaarhet.search_reply.send_html') as send_html,
         ):
             send_search_results('user@example.com', 'polis lemonade')
+
+        temporary_link.assert_not_called()
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Geen passend document gevonden')
+
+    def test_weak_match_below_thirty_is_excluded(self) -> None:
+        rows = [
+            _row('random_document.pdf', '/random.pdf', 1, purpose='factuur', category='overig'),
+        ]
+
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+        ):
+            send_search_results('user@example.com', 'factuur')
 
         temporary_link.assert_not_called()
         send_html.assert_called_once()
