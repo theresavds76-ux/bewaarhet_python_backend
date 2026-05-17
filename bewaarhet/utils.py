@@ -489,17 +489,140 @@ def is_own_outgoing_invoice(ocr_text: str, supplier: str) -> bool:
 def detect_certificate_filename_parts(ocr_text: str) -> list[str]:
     """Extract manufacturer/model/product parts for compliance certificates."""
     text = ocr_text or ''
-    stop_labels = [
+    labels = {
+        'manufacturer': 'maker',
+        'fabrikant': 'maker',
+        'product name': 'product',
+        'product': 'product',
+        'artikel': 'product',
+        'main model': 'model',
+        'model no': 'model',
+        'model number': 'model',
+        'model': 'model',
+        'type': 'model',
+    }
+    block_labels = {
+        'certificate no': 'certificate_no',
+        'certificate number': 'certificate_no',
+        'applicant': 'applicant',
+        'manufacturer': 'maker',
+        'fabrikant': 'maker',
+        'product name': 'product',
+        'trade mark': 'trade_mark',
+        'trademark': 'trade_mark',
+        'main model': 'model',
+        'series models': 'series_models',
+        'series model': 'series_models',
+        'test standard': 'test_standard',
+    }
+    stop_labels = {
         'manufacturer', 'fabrikant', 'supplier', 'leverancier', 'issued by', 'producent',
         'product name', 'product', 'artikel', 'main model', 'model', 'model no',
         'model number', 'type', 'trade mark', 'trademark', 'brand', 'merk',
-        'series', 'applicant', 'certificate no', 'report no', 'standard',
+        'series', 'series models', 'applicant', 'certificate no', 'certificate number',
+        'report no', 'standard', 'test standard',
         'declaration of conformity',
-    ]
+    }
 
-    maker = extract_labeled_value(text, ['manufacturer', 'fabrikant'], stop_labels)
-    product = extract_labeled_value(text, ['product name', 'product', 'artikel'], stop_labels)
-    model = extract_labeled_value(text, ['main model', 'model no', 'model number', 'model', 'type'], stop_labels)
+    def normalize_line(value: str) -> str:
+        value = (
+            value
+            .replace('\u00a0', ' ')
+            .replace('\ufeff', '')
+            .replace('\u200b', '')
+            .replace('\uff1a', ':')
+            .replace('\ufe55', ':')
+        )
+        return re.sub(r'\s+', ' ', value).strip()
+
+    def normalize_label(value: str) -> str:
+        return normalize_line(value).lower().strip(': -.').replace('.', '')
+
+    def clean_value(value: str) -> str:
+        return normalize_line(value).lstrip(': -').strip()
+
+    def is_block_value_line(value: str) -> bool:
+        line = normalize_line(value)
+        if line.startswith(':'):
+            return True
+        return bool(re.fullmatch(r'[A-Za-z]{1,4}\d[A-Za-z0-9._-]*', line))
+
+    def split_inline_label(line: str) -> tuple[str, str, str] | None:
+        line_label = normalize_label(line)
+        if line_label in labels:
+            return labels[line_label], line_label, ''
+        for separator in (':', '-'):
+            if separator not in line:
+                continue
+            left, right = line.split(separator, 1)
+            left_label = normalize_label(left)
+            if left_label in labels:
+                return labels[left_label], left_label, clean_value(right)
+        return None
+
+    lines = [
+        normalize_line(line)
+        for line in text.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    ]
+    lines = [line for line in lines if line]
+
+    values = {'maker': '', 'product': '', 'model': ''}
+    for start_index, line in enumerate(lines):
+        first_label = normalize_label(line)
+        if first_label not in block_labels:
+            continue
+
+        block = []
+        cursor = start_index
+        while cursor < len(lines):
+            label = normalize_label(lines[cursor])
+            if label not in block_labels:
+                break
+            block.append((cursor, label, block_labels[label], lines[cursor]))
+            cursor += 1
+
+        if len(block) < 3:
+            continue
+
+        value_lines = []
+        value_cursor = cursor
+        while value_cursor < len(lines) and len(value_lines) < len(block):
+            if normalize_label(lines[value_cursor]) in block_labels:
+                break
+            if is_block_value_line(lines[value_cursor]):
+                candidate = clean_value(lines[value_cursor])
+                value_lines.append(candidate)
+            value_cursor += 1
+
+        for position, (line_index, label, field, original_line) in enumerate(block):
+            candidate = value_lines[position] if position < len(value_lines) else ''
+            if field in values and candidate and not values[field]:
+                values[field] = candidate
+        break
+
+    for index, line in enumerate(lines):
+        matched = split_inline_label(line)
+        if not matched:
+            continue
+
+        field, label, inline_value = matched
+        if values[field]:
+            continue
+
+        candidate = inline_value
+        if not candidate:
+            for next_line in lines[index + 1:index + 3]:
+                if normalize_label(next_line) in stop_labels or split_inline_label(next_line):
+                    break
+                candidate = clean_value(next_line)
+                if candidate:
+                    break
+
+        values[field] = candidate
+
+    maker = values['maker']
+    product = values['product']
+    model = values['model']
 
     maker_clean = clean_filename(maker)
     location_prefixes = {'dongguan', 'shenzhen', 'guangzhou', 'ningbo', 'yiwu'}
