@@ -73,6 +73,21 @@ def extract_labeled_value(ocr_text: str, labels: list[str], stop_labels: list[st
     all_labels = sorted(set(labels + (stop_labels or [])), key=len, reverse=True)
     label_pattern = '|'.join(re.escape(label) for label in all_labels)
 
+    inline_text = re.sub(r'\s+', ' ', normalized).strip()
+    wanted_labels = sorted(labels, key=len, reverse=True)
+    for label in wanted_labels:
+        other_labels = [item for item in all_labels if item.lower() != label.lower()]
+        stop_pattern = '|'.join(re.escape(item) for item in other_labels)
+        stop_lookup = rf'\s+\b(?:{stop_pattern})\s*[:\-]' if stop_pattern else r'$'
+        match = re.search(
+            rf'(?i)\b{re.escape(label)}\s*[:\-]\s*(.+?)(?={stop_lookup}|\s*$)',
+            inline_text,
+        )
+        if match:
+            value = match.group(1).strip()
+            if value:
+                return value
+
     def split_label(line: str) -> tuple[str, str] | None:
         match = re.match(rf'(?i)^({label_pattern})\s*(?:[:\-]\s*)?(.*)$', line)
         if not match:
