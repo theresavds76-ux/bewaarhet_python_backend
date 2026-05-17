@@ -40,3 +40,9 @@ Standaard toegestaan:
 - ZIP
 
 Maximaal 15 MB. ZIP-bestanden worden als archief opgeslagen en niet uitgepakt of ge-OCR'd.
+
+## Website deployment
+
+- GitHub Pages should deploy from the main branch `/docs` folder.
+- Custom domain: bewaarhet.nl
+- DNS must be configured at Hostnet.
