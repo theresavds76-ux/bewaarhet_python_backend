@@ -11,6 +11,7 @@ def client() -> dropbox.Dropbox:
         oauth2_refresh_token=settings.dropbox_refresh_token,
         app_key=settings.dropbox_app_key,
         app_secret=settings.dropbox_app_secret,
+        timeout=getattr(settings, 'dropbox_timeout_seconds', 15),
     )
 
 

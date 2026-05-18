@@ -155,6 +155,18 @@ class BackupMaintenanceTests(unittest.TestCase):
         self.assertEqual(report.duplicate_paths, {'/Bewaar het/Klanten/user/one.pdf': 2})
         self.assertEqual(report.orphaned_records, [3])
 
+    def test_consistency_check_supports_limit_and_since_id(self) -> None:
+        database.add_document(_record('one.pdf', '/Bewaar het/Klanten/user/one.pdf'))
+        database.add_document(_record('two.pdf', '/Bewaar het/Klanten/user/two.pdf', customer='two@example.com'))
+        database.add_document(_record('three.pdf', '/Bewaar het/Klanten/user/three.pdf', customer='three@example.com'))
+
+        with patch('bewaarhet.maintenance.path_exists', return_value=True) as path_exists:
+            report = maintenance.run_dropbox_consistency_check(limit=1, since_id=1, log_every=1)
+
+        self.assertEqual(report.total_records, 1)
+        self.assertEqual(report.checked_paths, 1)
+        path_exists.assert_called_once_with('/Bewaar het/Klanten/user/two.pdf')
+
     def test_consistency_check_reports_missing_dropbox_file(self) -> None:
         database.add_document(_record('missing.pdf', '/Bewaar het/Klanten/user/missing.pdf'))
 
@@ -163,6 +175,49 @@ class BackupMaintenanceTests(unittest.TestCase):
 
         self.assertEqual(len(report.missing_files), 1)
         self.assertEqual(report.missing_files[0].filename, 'missing.pdf')
+
+    def test_consistency_check_continues_after_timeout_and_api_errors(self) -> None:
+        database.add_document(_record('timeout.pdf', '/Bewaar het/Klanten/user/timeout.pdf'))
+        database.add_document(_record('api.pdf', '/Bewaar het/Klanten/user/api.pdf', customer='api@example.com'))
+        database.add_document(_record('ok.pdf', '/Bewaar het/Klanten/user/ok.pdf', customer='ok@example.com'))
+
+        with patch(
+            'bewaarhet.maintenance.path_exists',
+            side_effect=[TimeoutError('timed out'), RuntimeError('api unavailable'), True],
+        ) as path_exists:
+            report = maintenance.run_dropbox_consistency_check(log_every=1)
+
+        self.assertEqual(path_exists.call_count, 3)
+        self.assertEqual(len(report.timeout_errors), 1)
+        self.assertEqual(len(report.api_errors), 1)
+        self.assertEqual(report.checked_paths, 3)
+
+    def test_consistency_check_reports_invalid_paths_without_dropbox_call(self) -> None:
+        database.add_document(_record('invalid.pdf', 'relative/path.pdf'))
+
+        with patch('bewaarhet.maintenance.path_exists') as path_exists:
+            report = maintenance.run_dropbox_consistency_check()
+
+        path_exists.assert_not_called()
+        self.assertEqual(len(report.invalid_paths), 1)
+        self.assertEqual(report.invalid_paths[0].reason, 'dropbox_path_must_start_with_slash')
+
+    def test_consistency_check_logs_progress_and_slow_records(self) -> None:
+        database.add_document(_record('slow.pdf', '/Bewaar het/Klanten/user/slow.pdf'))
+        output = StringIO()
+
+        with (
+            patch('bewaarhet.maintenance.path_exists', return_value=True),
+            patch('bewaarhet.maintenance.time.perf_counter', side_effect=[0.0, 0.1, 2.6, 2.7]),
+            redirect_stdout(output),
+        ):
+            report = maintenance.run_dropbox_consistency_check(log_every=1, slow_threshold_seconds=1.0)
+
+        self.assertEqual(len(report.slow_records), 1)
+        self.assertIn('Dropbox consistency check started', output.getvalue())
+        self.assertIn('Dropbox consistency progress | record=1/1', output.getvalue())
+        self.assertIn('Slow Dropbox metadata check', output.getvalue())
+        self.assertIn('average_per_record=', output.getvalue())
 
     def test_worker_startup_integrity_checks(self) -> None:
         output = StringIO()

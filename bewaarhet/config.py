@@ -57,6 +57,9 @@ class Settings:
     backup_dir: Path = _path_from_env('BACKUP_DIR', DEFAULT_DATA_DIR / 'backups')
     log_dir: Path = _path_from_env('LOG_DIR', DEFAULT_DATA_DIR / 'logs')
     backup_keep_latest: int = int(os.getenv('BACKUP_KEEP_LATEST', '14'))
+    dropbox_timeout_seconds: int = int(os.getenv('DROPBOX_TIMEOUT_SECONDS', '15'))
+    consistency_log_every: int = int(os.getenv('CONSISTENCY_LOG_EVERY', '10'))
+    consistency_slow_threshold_seconds: float = float(os.getenv('CONSISTENCY_SLOW_THRESHOLD_SECONDS', '2.0'))
 
     max_attachment_mb: int = int(os.getenv('MAX_ATTACHMENT_MB', '15'))
     allowed_extensions: set[str] = None  # type: ignore[assignment]

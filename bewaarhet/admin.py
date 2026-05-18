@@ -34,8 +34,13 @@ def _backup_restore(args: argparse.Namespace) -> None:
     print(result.message)
 
 
-def _consistency_check(_args: argparse.Namespace) -> None:
-    run_dropbox_consistency_check()
+def _consistency_check(args: argparse.Namespace) -> None:
+    run_dropbox_consistency_check(
+        limit=args.limit,
+        since_id=args.since_id,
+        log_every=args.log_every,
+        slow_threshold_seconds=args.slow_threshold,
+    )
 
 
 def _backup_scheduler(args: argparse.Namespace) -> None:
@@ -70,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     restore.set_defaults(func=_backup_restore)
 
     consistency = subparsers.add_parser('consistency-check', help='Controleer SQLite records tegen Dropbox')
+    consistency.add_argument('--limit', type=int, default=None, help='Controleer maximaal dit aantal records')
+    consistency.add_argument('--since-id', type=int, default=None, help='Controleer alleen records met id groter dan deze waarde')
+    consistency.add_argument('--log-every', type=int, default=None, help='Log voortgang elke N records')
+    consistency.add_argument('--slow-threshold', type=float, default=None, help='Log trage Dropbox checks boven dit aantal seconden')
     consistency.set_defaults(func=_consistency_check)
 
     scheduler = subparsers.add_parser('backup-scheduler', help='Eenvoudige geplande backup helper')

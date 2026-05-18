@@ -233,6 +233,22 @@ def all_documents() -> list[sqlite3.Row]:
         return list(conn.execute('SELECT * FROM documents ORDER BY id'))
 
 
+def documents_for_consistency_check(*, limit: int | None = None, since_id: int | None = None) -> list[sqlite3.Row]:
+    sql = 'SELECT * FROM documents'
+    params: list[int] = []
+    if since_id is not None:
+        sql += ' WHERE id > ?'
+        params.append(since_id)
+    sql += ' ORDER BY id'
+    if limit is not None:
+        sql += ' LIMIT ?'
+        params.append(limit)
+
+    with closing(connect()) as conn:
+        _ensure_documents_columns(conn)
+        return list(conn.execute(sql, params))
+
+
 SYNONYM_GROUPS = [
     {
         'belasting', 'belastingformulier', 'formulier', 'kwijtschelding',
