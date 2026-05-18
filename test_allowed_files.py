@@ -83,6 +83,7 @@ class AllowedFilesTests(unittest.TestCase):
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.add_document') as add_document,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
             patch('bewaarhet.processor.settings', SimpleNamespace(
                 allowed_extensions=ALLOWED_EXTENSIONS,
                 max_attachment_mb=15,

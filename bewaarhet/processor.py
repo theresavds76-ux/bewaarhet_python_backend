@@ -15,6 +15,7 @@ from .database import add_document, connect
 from .dropbox_client import upload_file
 from .mail_client import Attachment, IncomingMail, mark_as_seen, send_html
 from .ocr import ocr_space
+from .rate_limiter import apply_rate_limit_or_reply
 from .search_reply import send_search_results
 from .utils import (
     canonical_customer_identity,
@@ -76,6 +77,18 @@ class AttachmentValidation:
 
 def _recipient_contains(mail: IncomingMail, address: str) -> bool:
     return address.lower() in (getattr(mail, 'to_email', '') or '').lower()
+
+
+def _is_self_trigger_mail(mail: IncomingMail) -> bool:
+    sender = canonical_customer_identity(mail.from_email)
+    service_addresses = {
+        canonical_customer_identity(settings.zoho_email),
+        'service@bewaarhet.nl',
+        'bewaren@bewaarhet.nl',
+        'zoek@bewaarhet.nl',
+    }
+    service_addresses = {address for address in service_addresses if address}
+    return sender in service_addresses
 
 
 def _search_query_from_mail(mail: IncomingMail) -> str:
@@ -384,6 +397,10 @@ def _send_attachment_rejected_reply(to: str, validation: AttachmentValidation) -
     ''')
 
 
+def _handle_rejected_upload_rate_limit(sender: str) -> bool:
+    return apply_rate_limit_or_reply(sender, 'rejected_upload')
+
+
 def _attachment_context_text(mail: IncomingMail) -> str:
     return f'{mail.subject}\n{mail.body_text}'.strip()
 
@@ -531,12 +548,15 @@ def process_upload_mail(mail: IncomingMail) -> None:
         validation = _validate_attachment(att)
         if not validation.ok:
             _log_attachment_rejected(att, validation)
-            _send_attachment_rejected_reply(mail.from_email, validation)
+            if _handle_rejected_upload_rate_limit(mail.from_email):
+                _send_attachment_rejected_reply(mail.from_email, validation)
             continue
 
         original_filename = validation.safe_filename
 
         if validation.extension == '.zip':
+            if not apply_rate_limit_or_reply(mail.from_email, 'zip_upload'):
+                continue
             ocr_text = _attachment_context_text(mail)
             print("ZIP-archief opgeslagen zonder uitpakken of OCR.")
         else:
@@ -614,15 +634,23 @@ def process_upload_mail(mail: IncomingMail) -> None:
 
 
 def process_mail(mail: IncomingMail) -> None:
+    if _is_self_trigger_mail(mail):
+        print(f"Mail loop/self-trigger geblokkeerd | sender={sanitize_for_log(canonical_customer_identity(mail.from_email))}")
+        return
+
     if _recipient_contains(mail, 'zoek@bewaarhet.nl'):
         query = _search_query_from_mail(mail)
         _log_route('search', 'ontvanger bevat zoek@bewaarhet.nl')
         print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
+        if not apply_rate_limit_or_reply(mail.from_email, 'search'):
+            return
         send_search_results(mail.from_email, query)
         return
 
     if _recipient_contains(mail, 'bewaren@bewaarhet.nl'):
         _log_route('store', 'ontvanger bevat bewaren@bewaarhet.nl')
+        if not apply_rate_limit_or_reply(mail.from_email, 'storage'):
+            return
         if mail.has_attachments:
             process_upload_mail(mail)
         else:
@@ -634,10 +662,14 @@ def process_mail(mail: IncomingMail) -> None:
             query = extract_search_text(mail.subject, mail.body_text)
             _log_route('search', 'service@bewaarhet.nl met zoekintentie')
             print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
+            if not apply_rate_limit_or_reply(mail.from_email, 'search'):
+                return
             send_search_results(mail.from_email, query)
             return
 
         _log_route('store', 'service@bewaarhet.nl zonder zoekintentie')
+        if not apply_rate_limit_or_reply(mail.from_email, 'storage'):
+            return
         if mail.has_attachments:
             process_upload_mail(mail)
         else:
@@ -646,6 +678,8 @@ def process_mail(mail: IncomingMail) -> None:
 
     if mail.has_attachments:
         _log_route('store', 'mail heeft bijlagen')
+        if not apply_rate_limit_or_reply(mail.from_email, 'storage'):
+            return
         process_upload_mail(mail)
         return
 
@@ -658,11 +692,15 @@ def process_mail(mail: IncomingMail) -> None:
         query = extract_search_text(mail.subject, mail.body_text)
         _log_route('search', 'expliciete zoekterm in onderwerp')
         print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
+        if not apply_rate_limit_or_reply(mail.from_email, 'search'):
+            return
         send_search_results(mail.from_email, query)
         return
 
     if is_document_email_without_attachment(mail):
         _log_route('store', 'documentachtige mail zonder bijlage')
+        if not apply_rate_limit_or_reply(mail.from_email, 'storage'):
+            return
         process_document_body_mail(mail)
         return
 

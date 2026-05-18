@@ -70,6 +70,7 @@ class UploadSafetyTests(unittest.TestCase):
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.add_document') as add_document,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
         ):
             process_upload_mail(_mail(att))
 
@@ -85,6 +86,7 @@ class UploadSafetyTests(unittest.TestCase):
             patch('bewaarhet.processor.settings', self._settings()),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
         ):
             process_upload_mail(_mail(att))
 
@@ -99,6 +101,7 @@ class UploadSafetyTests(unittest.TestCase):
             patch('bewaarhet.processor.settings', self._settings()),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
             redirect_stdout(output),
         ):
             process_upload_mail(_mail(att))
@@ -115,6 +118,7 @@ class UploadSafetyTests(unittest.TestCase):
             patch('bewaarhet.processor.settings', self._settings()),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
         ):
             process_upload_mail(_mail(att))
 
@@ -129,6 +133,7 @@ class UploadSafetyTests(unittest.TestCase):
             patch('bewaarhet.processor.settings', self._settings()),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
         ):
             process_upload_mail(_mail(att))
 
@@ -143,6 +148,7 @@ class UploadSafetyTests(unittest.TestCase):
             patch('bewaarhet.processor.settings', self._settings()),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
         ):
             process_upload_mail(_mail(att))
 
@@ -156,6 +162,7 @@ class UploadSafetyTests(unittest.TestCase):
             patch('bewaarhet.processor.settings', self._settings()),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
         ):
             process_upload_mail(_mail(att))
 
@@ -170,6 +177,7 @@ class UploadSafetyTests(unittest.TestCase):
             patch('bewaarhet.processor.settings', self._settings()),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
         ):
             process_upload_mail(_mail(att))
 

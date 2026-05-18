@@ -37,6 +37,23 @@ CREATE INDEX IF NOT EXISTS idx_documents_customer ON documents(customer_email);
 CREATE INDEX IF NOT EXISTS idx_documents_customer_identity ON documents(customer_identity);
 CREATE INDEX IF NOT EXISTS idx_documents_safe_customer ON documents(safe_customer_folder);
 CREATE INDEX IF NOT EXISTS idx_documents_search ON documents(customer_email, category, filename, year, month);
+
+CREATE TABLE IF NOT EXISTS rate_limit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sender TEXT NOT NULL,
+    action TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limit_events ON rate_limit_events(sender, action, created_at);
+
+CREATE TABLE IF NOT EXISTS rate_limit_cooldowns (
+    sender TEXT NOT NULL,
+    action TEXT NOT NULL,
+    cooldown_start INTEGER NOT NULL,
+    cooldown_until INTEGER NOT NULL,
+    PRIMARY KEY(sender, action)
+);
 '''
 
 
@@ -72,8 +89,34 @@ def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
         _ensure_documents_columns(conn)
+        ensure_rate_limit_tables(conn)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_domain_search ON documents(customer_email, domain)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_customer_identity ON documents(customer_identity)")
+
+
+def ensure_rate_limit_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS rate_limit_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT NOT NULL,
+            action TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+        '''
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_rate_limit_events ON rate_limit_events(sender, action, created_at)")
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS rate_limit_cooldowns (
+            sender TEXT NOT NULL,
+            action TEXT NOT NULL,
+            cooldown_start INTEGER NOT NULL,
+            cooldown_until INTEGER NOT NULL,
+            PRIMARY KEY(sender, action)
+        )
+        '''
+    )
 
 
 def add_document(record: dict) -> None:
