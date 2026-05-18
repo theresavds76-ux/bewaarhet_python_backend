@@ -4,13 +4,13 @@ import gc
 import sqlite3
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from bewaarhet import backup, database, maintenance, worker
+from bewaarhet import backup, cleanup, database, maintenance, worker
 
 
 def _settings(root: Path, *, keep_latest: int = 14) -> SimpleNamespace:
@@ -62,6 +62,7 @@ class BackupMaintenanceTests(unittest.TestCase):
         self.patchers = [
             patch('bewaarhet.database.settings', self.settings),
             patch('bewaarhet.backup.settings', self.settings),
+            patch('bewaarhet.cleanup.settings', self.settings),
             patch('bewaarhet.maintenance.init_db', database.init_db),
             patch('bewaarhet.worker.settings', self.settings),
         ]
@@ -232,6 +233,83 @@ class BackupMaintenanceTests(unittest.TestCase):
         check_integrity.assert_called_once()
         self.assertIn('Bewaarhet worker startup diagnostics.', output.getvalue())
         self.assertIn('Database integrity check: ok', output.getvalue())
+
+    def test_cleanup_orphaned_dry_run_does_not_delete(self) -> None:
+        database.add_document(_record('missing.pdf', '/Bewaar het/Klanten/user/missing.pdf'))
+
+        with patch('bewaarhet.cleanup.path_exists', return_value=False):
+            deleted = cleanup.cleanup_orphaned(confirm=False)
+
+        self.assertEqual(deleted, 0)
+        self.assertEqual(len(database.all_documents()), 1)
+
+    def test_cleanup_report_detects_orphans_and_duplicates(self) -> None:
+        database.add_document(_record('one.pdf', '/Bewaar het/Klanten/user/one.pdf'))
+        database.add_document(_record('two.pdf', '/Bewaar het/Klanten/user/one.pdf', customer='other@example.com'))
+        database.add_document(_record('orphan.pdf', '', customer='third@example.com'))
+
+        with patch('bewaarhet.cleanup.path_exists', return_value=True):
+            report = cleanup.build_cleanup_report()
+
+        self.assertEqual(len(report.orphaned_records), 1)
+        self.assertEqual(len(report.duplicate_records), 2)
+
+    def test_cleanup_testdata_detection_and_confirm_delete(self) -> None:
+        database.add_document(_record('testje.pdf', '/Bewaar het/Klanten/user/testje.pdf'))
+        database.add_document(_record('legacy.webp', '/Bewaar het/Klanten/user/legacy.webp', customer='legacy@example.com'))
+        database.add_document(_record('invoice.pdf', '/Bewaar het/Klanten/user/invoice.pdf', customer='real@example.com'))
+
+        dry_run = cleanup.cleanup_testdata(confirm=False)
+        self.assertEqual(dry_run, 0)
+        self.assertEqual(len(database.all_documents()), 3)
+
+        deleted = cleanup.cleanup_testdata(confirm=True)
+        self.assertEqual(deleted, 2)
+        filenames = {row['filename'] for row in database.all_documents()}
+        self.assertEqual(filenames, {'invoice.pdf'})
+
+    def test_reset_dev_environment_requires_confirmation(self) -> None:
+        with self.assertRaises(RuntimeError):
+            cleanup.reset_dev_environment(confirm=False)
+
+    def test_reset_dev_environment_backs_up_before_clearing_metadata(self) -> None:
+        database.add_document(_record('invoice.pdf', '/Bewaar het/Klanten/user/invoice.pdf'))
+        with closing(database.connect()) as conn:
+            conn.execute(
+                "INSERT INTO rate_limit_events (sender, action, created_at) VALUES (?, ?, ?)",
+                ('user@example.com', 'search', 1000),
+            )
+            conn.execute(
+                "INSERT INTO rate_limit_cooldowns (sender, action, cooldown_start, cooldown_until) VALUES (?, ?, ?, ?)",
+                ('user@example.com', 'search', 1000, 4600),
+            )
+            conn.commit()
+
+        with patch('bewaarhet.cleanup.create_backup', return_value=self.settings.backup_dir / 'backup.sqlite3') as create_backup:
+            result = cleanup.reset_dev_environment(confirm=True)
+
+        create_backup.assert_called_once_with(reason='pre-reset-dev-environment')
+        self.assertEqual(result['documents'], 1)
+        self.assertEqual(result['rate_limit_events'], 1)
+        self.assertEqual(result['rate_limit_cooldowns'], 1)
+        self.assertEqual(len(database.all_documents()), 0)
+        with closing(database.connect()) as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM rate_limit_events').fetchone()[0], 0)
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM rate_limit_cooldowns').fetchone()[0], 0)
+
+    def test_reset_log_cleanup_stays_inside_configured_log_dir(self) -> None:
+        self.settings.log_dir.mkdir(parents=True, exist_ok=True)
+        inside_log = self.settings.log_dir / 'worker.log'
+        inside_log.write_text('safe to clear', encoding='utf-8')
+        outside_file = Path(self.temp_dir.name) / 'keep.log'
+        outside_file.write_text('do not touch', encoding='utf-8')
+
+        with patch('bewaarhet.cleanup.create_backup', return_value=self.settings.backup_dir / 'backup.sqlite3'):
+            result = cleanup.reset_dev_environment(confirm=True, clear_logs=True)
+
+        self.assertEqual(result['logs'], 1)
+        self.assertFalse(inside_log.exists())
+        self.assertTrue(outside_file.exists())
 
 
 if __name__ == '__main__':
