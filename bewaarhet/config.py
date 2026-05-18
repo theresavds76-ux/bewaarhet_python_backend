@@ -25,6 +25,13 @@ DEFAULT_ALLOWED_EXTENSIONS = (
 )
 
 
+def _path_from_env(name: str, default: Path | str) -> Path:
+    return Path(os.getenv(name, str(default))).expanduser().resolve()
+
+
+DEFAULT_DATA_DIR = _path_from_env('DATA_DIR', 'data')
+
+
 @dataclass(frozen=True)
 class Settings:
     zoho_email: str = os.getenv('ZOHO_EMAIL', 'service@bewaarhet.nl')
@@ -45,7 +52,12 @@ class Settings:
     openai_api_key: str = os.getenv('OPENAI_API_KEY', '')
     openai_model: str = os.getenv('OPENAI_MODEL', 'gpt-5-mini')
 
-    database_path: Path = Path(os.getenv('DATABASE_PATH', 'data/bewaarhet.sqlite3'))
+    data_dir: Path = DEFAULT_DATA_DIR
+    database_path: Path = _path_from_env('DATABASE_PATH', DEFAULT_DATA_DIR / 'bewaarhet.sqlite3')
+    backup_dir: Path = _path_from_env('BACKUP_DIR', DEFAULT_DATA_DIR / 'backups')
+    log_dir: Path = _path_from_env('LOG_DIR', DEFAULT_DATA_DIR / 'logs')
+    backup_keep_latest: int = int(os.getenv('BACKUP_KEEP_LATEST', '14'))
+
     max_attachment_mb: int = int(os.getenv('MAX_ATTACHMENT_MB', '15'))
     allowed_extensions: set[str] = None  # type: ignore[assignment]
     search_result_limit: int = int(os.getenv('SEARCH_RESULT_LIMIT', '10'))
@@ -58,6 +70,12 @@ class Settings:
             'allowed_extensions',
             _csv(DEFAULT_ALLOWED_EXTENSIONS) | configured_extensions,
         )
+
+    def ensure_directories(self) -> None:
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

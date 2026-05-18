@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import sqlite3
 import re
-from pathlib import Path
-from typing import Iterable
+from contextlib import closing
 
+from .backup import create_backup, validate_database
 from .config import settings
 from .utils import canonical_customer_identity
 
@@ -58,10 +58,50 @@ CREATE TABLE IF NOT EXISTS rate_limit_cooldowns (
 
 
 def connect() -> sqlite3.Connection:
-    settings.database_path.parent.mkdir(parents=True, exist_ok=True)
+    if hasattr(settings, 'ensure_directories'):
+        settings.ensure_directories()
+    else:
+        settings.database_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(settings.database_path)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+DOCUMENT_COLUMNS = {
+    'customer_identity',
+    'original_filename',
+    'document_date',
+    'domain',
+    'supplier',
+    'purpose',
+    'title',
+    'ocr_preview',
+    'ocr_text',
+    'year',
+    'month',
+    'missing_file',
+}
+
+
+def _table_names(conn: sqlite3.Connection) -> set[str]:
+    return {
+        row['name']
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )
+    }
+
+
+def _schema_update_needed(conn: sqlite3.Connection) -> bool:
+    tables = _table_names(conn)
+    if not tables:
+        return False
+    if 'documents' not in tables:
+        return True
+    if not {'rate_limit_events', 'rate_limit_cooldowns'}.issubset(tables):
+        return True
+    existing_columns = {row['name'] for row in conn.execute("PRAGMA table_info(documents)")}
+    return not DOCUMENT_COLUMNS.issubset(existing_columns)
 
 
 def _ensure_documents_columns(conn: sqlite3.Connection) -> None:
@@ -81,17 +121,49 @@ def _ensure_documents_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN purpose TEXT DEFAULT ''")
     if 'title' not in existing_columns:
         conn.execute("ALTER TABLE documents ADD COLUMN title TEXT DEFAULT ''")
+    if 'ocr_preview' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN ocr_preview TEXT DEFAULT ''")
+    if 'ocr_text' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN ocr_text TEXT DEFAULT ''")
+    if 'year' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN year TEXT DEFAULT ''")
+    if 'month' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN month TEXT DEFAULT ''")
     if 'missing_file' not in existing_columns:
         conn.execute("ALTER TABLE documents ADD COLUMN missing_file INTEGER NOT NULL DEFAULT 0")
 
 
 def init_db() -> None:
-    with connect() as conn:
+    if hasattr(settings, 'ensure_directories'):
+        settings.ensure_directories()
+    else:
+        settings.database_path.parent.mkdir(parents=True, exist_ok=True)
+    if settings.database_path.exists() and settings.database_path.stat().st_size > 0:
+        with closing(connect()) as conn:
+            needs_schema_update = _schema_update_needed(conn)
+        if needs_schema_update:
+            create_backup(
+                database_path=settings.database_path,
+                backup_dir=getattr(settings, 'backup_dir', settings.database_path.parent / 'backups'),
+                keep_latest=getattr(settings, 'backup_keep_latest', 14),
+                reason='pre-migration',
+                require_tables=False,
+            )
+
+    with closing(connect()) as conn:
+        if 'documents' in _table_names(conn):
+            _ensure_documents_columns(conn)
+            conn.commit()
         conn.executescript(SCHEMA)
         _ensure_documents_columns(conn)
         ensure_rate_limit_tables(conn)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_domain_search ON documents(customer_email, domain)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_customer_identity ON documents(customer_identity)")
+        conn.commit()
+
+
+def check_integrity() -> tuple[bool, str]:
+    return validate_database(settings.database_path, require_tables=False)
 
 
 def ensure_rate_limit_tables(conn: sqlite3.Connection) -> None:
@@ -121,7 +193,7 @@ def ensure_rate_limit_tables(conn: sqlite3.Connection) -> None:
 
 def add_document(record: dict) -> None:
     customer_identity = canonical_customer_identity(record.get('customer_identity') or record['customer_email'])
-    with connect() as conn:
+    with closing(connect()) as conn:
         _ensure_documents_columns(conn)
         conn.execute(
             '''
@@ -142,19 +214,21 @@ def add_document(record: dict) -> None:
                 record.get('year', ''), record.get('month', ''),
             ),
         )
+        conn.commit()
 
 
 def mark_missing_file(document_id: int) -> None:
-    with connect() as conn:
+    with closing(connect()) as conn:
         _ensure_documents_columns(conn)
         conn.execute(
             'UPDATE documents SET missing_file = 1 WHERE id = ?',
             (document_id,),
         )
+        conn.commit()
 
 
 def all_documents() -> list[sqlite3.Row]:
-    with connect() as conn:
+    with closing(connect()) as conn:
         _ensure_documents_columns(conn)
         return list(conn.execute('SELECT * FROM documents ORDER BY id'))
 
@@ -240,6 +314,6 @@ def search_documents(customer_email: str, query: str, limit: int = 10) -> list[s
 
     params.append(limit)
 
-    with connect() as conn:
+    with closing(connect()) as conn:
         _ensure_documents_columns(conn)
         return list(conn.execute(sql, params))

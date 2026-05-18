@@ -4,7 +4,7 @@ import time
 import traceback
 
 from .config import settings
-from .database import init_db
+from .database import check_integrity, init_db
 from .mail_client import fetch_unseen, mark_as_seen
 from .processor import process_mail
 from .utils import sanitize_for_log
@@ -33,13 +33,39 @@ def run_once() -> None:
             print(sanitize_for_log(traceback.format_exc()), end='')
 
 
+def startup_diagnostics() -> None:
+    print('Bewaarhet worker startup diagnostics.')
+    print(f'Database path: {sanitize_for_log(settings.database_path)}')
+    print(f'Backup folder: {sanitize_for_log(settings.backup_dir)}')
+    print(f'Log folder: {sanitize_for_log(settings.log_dir)}')
+
+    try:
+        settings.ensure_directories()
+        print('Runtime folders ready.')
+    except Exception as exc:
+        print(f'FOUT bij runtime folders aanmaken: {sanitize_for_log(exc)}')
+        raise
+
+    init_db()
+    ok, message = check_integrity()
+    print(f'Database integrity check: {sanitize_for_log(message)}')
+    if not ok:
+        raise RuntimeError(f'Database integrity check failed: {message}')
+
+
 def run_forever() -> None:
     print('Bewaarhet worker gestart.')
+    startup_diagnostics()
 
-    while True:
-        run_once()
-        print(f'Wachten {settings.poll_seconds} seconden...\n')
-        time.sleep(settings.poll_seconds)
+    try:
+        while True:
+            run_once()
+            print(f'Wachten {settings.poll_seconds} seconden...\n')
+            time.sleep(settings.poll_seconds)
+    except KeyboardInterrupt:
+        print('Bewaarhet worker stopt op verzoek.')
+    finally:
+        print('Bewaarhet worker afgesloten.')
 
 
 if __name__ == '__main__':
