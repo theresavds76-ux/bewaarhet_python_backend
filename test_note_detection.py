@@ -109,7 +109,8 @@ class NoteDetectionTests(unittest.TestCase):
         self.assertIn('[storage-debug] category: notities', output.getvalue())
         self.assertIn('[storage-debug] ocr_preview length:', output.getvalue())
         self.assertIn('[storage-debug] ocr_text length:', output.getvalue())
-        self.assertIn('[storage-debug] first 200 searchable chars:', output.getvalue())
+        self.assertIn('[storage-debug] sanitized searchable preview:', output.getvalue())
+        self.assertNotIn('AAEUUUE', output.getvalue())
 
     def test_implicit_body_note_mail_is_saved_as_notitie(self) -> None:
         mail = _mail('', 'Wachtwoord AAA: AAEUUUE')

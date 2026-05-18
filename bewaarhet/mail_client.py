@@ -3,7 +3,6 @@ from __future__ import annotations
 import email
 import imaplib
 import smtplib
-import sys
 import time
 import traceback
 from dataclasses import dataclass
@@ -15,6 +14,7 @@ from typing import Iterable
 from bs4 import BeautifulSoup
 
 from .config import settings
+from .utils import sanitize_for_log
 
 
 @dataclass
@@ -153,13 +153,13 @@ def send_html(to: str, subject: str, html: str) -> None:
             smtp.starttls()
             smtp.login(settings.zoho_email, settings.zoho_app_password)
             response = smtp.send_message(msg)
-            print(f"SMTP server response | recipient={to} | refused_recipients={response}")
+            print(f"SMTP server response | recipient={to} | refused_recipients={sanitize_for_log(response)}")
         smtp_duration = time.perf_counter() - smtp_started
         print(f"SMTP send completed successfully | recipient={to} | duration={smtp_duration:.3f}s")
     except Exception:
         smtp_duration = time.perf_counter() - smtp_started
         print(f"SMTP send failed | recipient={to} | attachment_count={attachment_count} | duration={smtp_duration:.3f}s")
-        traceback.print_exc(file=sys.stdout)
+        print(sanitize_for_log(traceback.format_exc()), end='')
         raise
 if __name__ == "__main__":
     print("Zoho IMAP test gestart...")
@@ -169,5 +169,5 @@ if __name__ == "__main__":
     for mail in mails[:5]:
         print("-" * 40)
         print(f"Van: {mail.from_email}")
-        print(f"Onderwerp: {mail.subject}")
+        print(f"Onderwerp: {sanitize_for_log(mail.subject)}")
         print(f"Bijlagen: {len(mail.attachments)}")

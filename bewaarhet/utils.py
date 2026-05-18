@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from html import escape
 from pathlib import Path
@@ -74,6 +75,94 @@ def extract_search_text(subject: str, body: str) -> str:
 
 def html_escape(text: str) -> str:
     return escape(text or '', quote=True)
+
+
+def sanitize_for_log(text: object) -> str:
+    """Redact sensitive values while keeping log lines useful for debugging."""
+    value = '' if text is None else str(text)
+    if not value:
+        return ''
+
+    value = re.sub(r'https?://[^\s<>"\']+', '[LINK REDACTED]', value)
+
+    iban_pattern = re.compile(r'\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]){11,30}\b', re.IGNORECASE)
+
+    def mask_iban(match: re.Match[str]) -> str:
+        compact = re.sub(r'\s+', '', match.group(0)).upper()
+        if not (15 <= len(compact) <= 34):
+            return match.group(0)
+        return f'{compact[:4]}********{compact[-4:]}'
+
+    value = iban_pattern.sub(mask_iban, value)
+
+    configured_secrets = []
+    sensitive_name_parts = ('TOKEN', 'KEY', 'SECRET', 'PASSWORD', 'PASS')
+    for name, secret in os.environ.items():
+        if not secret or len(secret) < 8:
+            continue
+        if any(part in name.upper() for part in sensitive_name_parts):
+            configured_secrets.append(secret)
+    for secret in sorted(set(configured_secrets), key=len, reverse=True):
+        value = value.replace(secret, '[SECRET REDACTED]')
+
+    value = re.sub(r'\bsk-(?:proj-)?[A-Za-z0-9_-]{8,}\b', '[SECRET REDACTED]', value)
+    value = re.sub(r'\bsl\.[A-Za-z0-9_-]{20,}\b', '[SECRET REDACTED]', value)
+
+    value = re.sub(
+        r'(?i)\b(access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|apikey|authorization|secret)\b'
+        r'(\s*[:=]\s*)'
+        r'([^\s,;]+)',
+        r'\1\2[SECRET REDACTED]',
+        value,
+    )
+
+    credential_labels = (
+        'wachtwoord',
+        'password',
+        'pincode',
+        'pin',
+        'code',
+        'login',
+        'logincode',
+        'gebruikersnaam',
+        'username',
+        'sleutel',
+    )
+    labels = '|'.join(re.escape(label) for label in credential_labels)
+    value = re.sub(
+        rf'(?i)\b({labels})\b(\s+(?:voor\s+)?[A-Za-z0-9._-]{{1,80}}\s+is\s+)([^\s,;.!?]+)',
+        lambda match: f'{match.group(1)}{match.group(2)}[REDACTED]',
+        value,
+    )
+    value = re.sub(
+        rf'(?i)\b({labels})(\s+(?:voor\s+)?[A-Za-z0-9._-]{{1,80}})?(\s*[:=]\s*)([^\s,;]+)',
+        lambda match: f'{match.group(1)}{match.group(2) or ""}{match.group(3)}[REDACTED]',
+        value,
+    )
+
+    stop_values = {
+        'voor',
+        'van',
+        'vergeten',
+        'forgot',
+        'reset',
+        'herstellen',
+        *credential_labels,
+    }
+
+    def mask_simple_credential(match: re.Match[str]) -> str:
+        candidate = match.group(3)
+        if candidate.lower().strip('.,!?;:') in stop_values:
+            return match.group(0)
+        return f'{match.group(1)}{match.group(2)}[REDACTED]'
+
+    value = re.sub(
+        rf'(?i)\b({labels})(\s+)([^\s,;:]+)',
+        mask_simple_credential,
+        value,
+    )
+    return value
+
 
 def clean_filename(text: str) -> str:
     text = text.lower()

@@ -18,6 +18,7 @@ from .utils import (
     is_document_email_without_attachment,
     is_probable_search_email,
     safe_customer_folder,
+    sanitize_for_log,
     strip_email_signature,
     is_note_like_content,
     detect_supplier,
@@ -120,13 +121,13 @@ def _log_supplier_debug(
     generated_filename: str,
 ) -> None:
     print("[supplier-debug] begin")
-    print(f"[supplier-debug] original_filename: {original_filename}")
-    print(f"[supplier-debug] mail subject: {mail_subject}")
+    print(f"[supplier-debug] original_filename: {sanitize_for_log(original_filename)}")
+    print(f"[supplier-debug] mail subject: {sanitize_for_log(mail_subject)}")
     print(f"[supplier-debug] sender email/domain: {sender_email} / {_sender_domain(sender_email)}")
-    print(f"[supplier-debug] eerste 800 tekens OCR: {(ocr_text or '')[:800]}")
+    print(f"[supplier-debug] sanitized OCR preview: {sanitize_for_log(ocr_text)[:100]}")
     print(f"[supplier-debug] detected supplier: {supplier}")
     print(f"[supplier-debug] detected purpose: {purpose}")
-    print(f"[supplier-debug] generated filename: {generated_filename}")
+    print(f"[supplier-debug] generated filename: {sanitize_for_log(generated_filename)}")
     print("[supplier-debug] end")
 
 
@@ -142,10 +143,10 @@ def _log_storage_debug(record: dict, searchable_text: str) -> None:
     print(f"[storage-debug] customer_email: {record.get('customer_email', '')}")
     print(f"[storage-debug] safe_customer_folder: {record.get('safe_customer_folder', '')}")
     print(f"[storage-debug] category: {record.get('category', '')}")
-    print(f"[storage-debug] filename: {record.get('filename', '')}")
+    print(f"[storage-debug] filename: {sanitize_for_log(record.get('filename', ''))}")
     print(f"[storage-debug] ocr_preview length: {len(record.get('ocr_preview', '') or '')}")
     print(f"[storage-debug] ocr_text length: {len(record.get('ocr_text', '') or '')}")
-    print(f"[storage-debug] first 200 searchable chars: {(searchable_text or '')[:200]}")
+    print(f"[storage-debug] sanitized searchable preview: {sanitize_for_log(searchable_text)[:100]}")
     print("[storage-debug] end")
 
 
@@ -269,8 +270,8 @@ def process_document_body_mail(mail: IncomingMail) -> None:
     path = _dropbox_path(customer, category, new_filename)
     upload_file(pdf_bytes, path)
 
-    print(f"Documentmail opgeslagen als PDF: {new_filename}")
-    print(f"Geupload naar Dropbox: {path}")
+    print(f"Documentmail opgeslagen als PDF: {sanitize_for_log(new_filename)}")
+    print(f"Geupload naar Dropbox: {sanitize_for_log(path)}")
 
     record = {
         'customer_email': mail.from_email,
@@ -301,7 +302,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
     date_received, year, month = _received_parts(mail)
 
     for att in mail.attachments:
-        print(f"Bijlage verwerken: {att.filename} ({att.size} bytes)")
+        print(f"Bijlage verwerken: {sanitize_for_log(att.filename)} ({att.size} bytes)")
 
         if _too_large(att):
             print("Bestand te groot, overgeslagen.")
@@ -360,8 +361,8 @@ def process_upload_mail(mail: IncomingMail) -> None:
         path = _dropbox_path(customer, category, new_filename)
         upload_file(att.content, path)
 
-        print(f"Geüpload naar Dropbox: {path}")
-        print(f"Nieuwe bestandsnaam: {new_filename}")   
+        print(f"Geüpload naar Dropbox: {sanitize_for_log(path)}")
+        print(f"Nieuwe bestandsnaam: {sanitize_for_log(new_filename)}")
 
         record = {
             'customer_email': mail.from_email,
@@ -391,7 +392,7 @@ def process_mail(mail: IncomingMail) -> None:
     if _recipient_contains(mail, 'zoek@bewaarhet.nl'):
         query = _search_query_from_mail(mail)
         _log_route('search', 'ontvanger bevat zoek@bewaarhet.nl')
-        print(f"Zoekmail herkend. Zoekterm: {query}")
+        print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
         send_search_results(mail.from_email, query)
         return
 
@@ -407,7 +408,7 @@ def process_mail(mail: IncomingMail) -> None:
         if _has_service_search_intent(mail):
             query = extract_search_text(mail.subject, mail.body_text)
             _log_route('search', 'service@bewaarhet.nl met zoekintentie')
-            print(f"Zoekmail herkend. Zoekterm: {query}")
+            print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
             send_search_results(mail.from_email, query)
             return
 
@@ -431,7 +432,7 @@ def process_mail(mail: IncomingMail) -> None:
     ):
         query = extract_search_text(mail.subject, mail.body_text)
         _log_route('search', 'expliciete zoekterm in onderwerp')
-        print(f"Zoekmail herkend. Zoekterm: {query}")
+        print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
         send_search_results(mail.from_email, query)
         return
 
@@ -451,7 +452,7 @@ if __name__ == "__main__":
     for mail in mails:
         print("-" * 40)
         print(f"Van: {mail.from_email}")
-        print(f"Onderwerp: {mail.subject}")
+        print(f"Onderwerp: {sanitize_for_log(mail.subject)}")
         print(f"Bijlagen: {len(mail.attachments)}")
 
         process_mail(mail)

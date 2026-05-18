@@ -9,7 +9,7 @@ from .config import settings
 from .database import mark_missing_file, search_documents
 from .dropbox_client import is_not_found_error, temporary_link
 from .mail_client import send_html
-from .utils import html_escape, safe_customer_folder
+from .utils import html_escape, safe_customer_folder, sanitize_for_log
 
 
 WEAK_QUERY_TERMS = {
@@ -277,7 +277,7 @@ def _log_search_debug(customer_email: str, query: str, rows: list) -> None:
     print("[search-debug] begin")
     print(f"[search-debug] sender email: {customer_email}")
     print(f"[search-debug] safe_customer_folder: {safe_customer_folder(customer_email)}")
-    print(f"[search-debug] cleaned query: {cleaned_query}")
+    print(f"[search-debug] cleaned query: {sanitize_for_log(cleaned_query)}")
     print(f"[search-debug] candidate records loaded from SQLite: {len(rows)}")
 
     for index, (score, row) in enumerate(ranked[:5], start=1):
@@ -287,7 +287,7 @@ def _log_search_debug(customer_email: str, query: str, rows: list) -> None:
         if score < MIN_SEARCH_RESULT_SCORE:
             rejected_reason = f'score {score} below threshold {MIN_SEARCH_RESULT_SCORE}'
         print(f"[search-debug] candidate {index}")
-        print(f"[search-debug] filename: {_row_value(row, 'filename')}")
+        print(f"[search-debug] filename: {sanitize_for_log(_row_value(row, 'filename'))}")
         print(f"[search-debug] category: {_row_value(row, 'category')}")
         print(f"[search-debug] purpose: {_row_value(row, 'purpose')}")
         print(f"[search-debug] ocr_preview contains query? {'yes' if _contains_query_match(ocr_preview, terms) else 'no'}")
@@ -358,7 +358,7 @@ def send_search_results(customer_email: str, query: str) -> None:
             try:
                 link = temporary_link(path)
             except Exception as exc:
-                print(f"Dropbox path niet gevonden: {path}")
+                print(f"Dropbox path niet gevonden: {sanitize_for_log(path)}")
                 if is_not_found_error(exc):
                     mark_missing_file(row['id'])
                 continue

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import requests
 from .config import settings
+from .utils import sanitize_for_log
 
 OCR_SPACE_MAX_UPLOAD_BYTES = 1_350_000
 OCR_IMAGE_MAX_DIMENSION = 2200
@@ -119,7 +120,7 @@ if __name__ == "__main__":
         if text:
             print("OCR gelukt:")
             print("-" * 40)
-            print(text[:1000])
+            print(sanitize_for_log(text)[:100])
         else:
             print("Geen OCR tekst gevonden.")
 
