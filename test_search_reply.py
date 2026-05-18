@@ -61,6 +61,13 @@ class SearchReplyTests(unittest.TestCase):
             send_search_results('user@example.com', 'factuur')
 
         self.assertIn('Dropbox path niet gevonden: /missing.pdf', output.getvalue())
+        self.assertIn('Search reply generation started | recipient=user@example.com | relevant_count=2', output.getvalue())
+        self.assertIn(
+            'Preparing search reply attachments/links | recipient=user@example.com | link_candidates=2 | attachment_count=0',
+            output.getvalue(),
+        )
+        self.assertIn('Attachment preparation duration | recipient=user@example.com | attachment_count=0 | duration=', output.getvalue())
+        self.assertIn('Dropbox link generation duration | recipient=user@example.com | generated_links=1 | duration=', output.getvalue())
         mark_missing_file.assert_called_once_with(1)
         send_html.assert_called_once()
         subject = send_html.call_args.args[1]

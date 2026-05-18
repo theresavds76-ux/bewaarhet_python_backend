@@ -3,6 +3,9 @@ from __future__ import annotations
 import email
 import imaplib
 import smtplib
+import sys
+import time
+import traceback
 from dataclasses import dataclass
 from email.header import decode_header, make_header
 from email.message import EmailMessage, Message
@@ -142,10 +145,22 @@ def send_html(to: str, subject: str, html: str) -> None:
     msg.set_content(BeautifulSoup(html, 'html.parser').get_text('\n'))
     msg.add_alternative(html, subtype='html')
 
-    with smtplib.SMTP(settings.zoho_smtp_host, settings.zoho_smtp_port) as smtp:
-        smtp.starttls()
-        smtp.login(settings.zoho_email, settings.zoho_app_password)
-        smtp.send_message(msg)
+    attachment_count = len(list(msg.iter_attachments()))
+    smtp_started = time.perf_counter()
+    print(f"SMTP send started | recipient={to} | attachment_count={attachment_count}")
+    try:
+        with smtplib.SMTP(settings.zoho_smtp_host, settings.zoho_smtp_port) as smtp:
+            smtp.starttls()
+            smtp.login(settings.zoho_email, settings.zoho_app_password)
+            response = smtp.send_message(msg)
+            print(f"SMTP server response | recipient={to} | refused_recipients={response}")
+        smtp_duration = time.perf_counter() - smtp_started
+        print(f"SMTP send completed successfully | recipient={to} | duration={smtp_duration:.3f}s")
+    except Exception:
+        smtp_duration = time.perf_counter() - smtp_started
+        print(f"SMTP send failed | recipient={to} | attachment_count={attachment_count} | duration={smtp_duration:.3f}s")
+        traceback.print_exc(file=sys.stdout)
+        raise
 if __name__ == "__main__":
     print("Zoho IMAP test gestart...")
     mails = fetch_unseen()

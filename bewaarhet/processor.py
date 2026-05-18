@@ -393,7 +393,6 @@ def process_mail(mail: IncomingMail) -> None:
         _log_route('search', 'ontvanger bevat zoek@bewaarhet.nl')
         print(f"Zoekmail herkend. Zoekterm: {query}")
         send_search_results(mail.from_email, query)
-        print("Zoekresultaten verstuurd.")
         return
 
     if _recipient_contains(mail, 'bewaren@bewaarhet.nl'):
@@ -410,7 +409,6 @@ def process_mail(mail: IncomingMail) -> None:
             _log_route('search', 'service@bewaarhet.nl met zoekintentie')
             print(f"Zoekmail herkend. Zoekterm: {query}")
             send_search_results(mail.from_email, query)
-            print("Zoekresultaten verstuurd.")
             return
 
         _log_route('store', 'service@bewaarhet.nl zonder zoekintentie')
@@ -435,7 +433,6 @@ def process_mail(mail: IncomingMail) -> None:
         _log_route('search', 'expliciete zoekterm in onderwerp')
         print(f"Zoekmail herkend. Zoekterm: {query}")
         send_search_results(mail.from_email, query)
-        print("Zoekresultaten verstuurd.")
         return
 
     if is_document_email_without_attachment(mail):

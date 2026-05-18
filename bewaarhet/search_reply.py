@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 
 from rapidfuzz import fuzz
 
@@ -311,7 +312,28 @@ def send_search_results(customer_email: str, query: str) -> None:
         if score >= MIN_SEARCH_RESULT_SCORE
     ]
 
+    print(
+        "Search reply generation started"
+        f" | recipient={customer_email} | relevant_count={len(relevant)}"
+    )
+    print(
+        "Preparing search reply attachments/links"
+        f" | recipient={customer_email} | link_candidates={len(relevant)} | attachment_count=0"
+    )
+    attachment_started = time.perf_counter()
+    attachment_count = 0
+    attachment_duration = time.perf_counter() - attachment_started
+    print(
+        "Attachment preparation duration"
+        f" | recipient={customer_email} | attachment_count={attachment_count}"
+        f" | duration={attachment_duration:.3f}s"
+    )
+
     if not relevant:
+        print(
+            "Dropbox link generation duration"
+            f" | recipient={customer_email} | generated_links=0 | duration=0.000s"
+        )
         send_html(customer_email, 'Geen passend document gevonden', f'''
             Hoi,<br><br>
             Ik kon geen passend document vinden bij je zoekopdracht:<br><br>
@@ -329,27 +351,36 @@ def send_search_results(customer_email: str, query: str) -> None:
         return
 
     blocks = []
-    for score, row in relevant:
-        path = row['dropbox_path']
-        try:
-            link = temporary_link(path)
-        except Exception as exc:
-            print(f"Dropbox path niet gevonden: {path}")
-            if is_not_found_error(exc):
-                mark_missing_file(row['id'])
-            continue
+    link_started = time.perf_counter()
+    try:
+        for score, row in relevant:
+            path = row['dropbox_path']
+            try:
+                link = temporary_link(path)
+            except Exception as exc:
+                print(f"Dropbox path niet gevonden: {path}")
+                if is_not_found_error(exc):
+                    mark_missing_file(row['id'])
+                continue
 
-        score = _score(row, query)
-        blocks.append(f'''
-            <div style="padding:12px; border:1px solid #dddddd; border-radius:8px; background:#f7f7f7; margin-bottom:10px;">
-                <b>{html_escape(row['filename'])}</b><br>
-                Categorie: {html_escape(row['category'])}<br>
-                Domein: {html_escape(row['domain'] or 'overig')}<br>
-                Datum: {html_escape(row['date_received'])}<br>
-                Relevantie: <b>{score}%</b><br>
-                <a href="{html_escape(link)}">Download document</a>
-            </div>
-        ''')
+            score = _score(row, query)
+            blocks.append(f'''
+                <div style="padding:12px; border:1px solid #dddddd; border-radius:8px; background:#f7f7f7; margin-bottom:10px;">
+                    <b>{html_escape(row['filename'])}</b><br>
+                    Categorie: {html_escape(row['category'])}<br>
+                    Domein: {html_escape(row['domain'] or 'overig')}<br>
+                    Datum: {html_escape(row['date_received'])}<br>
+                    Relevantie: <b>{score}%</b><br>
+                    <a href="{html_escape(link)}">Download document</a>
+                </div>
+            ''')
+    finally:
+        link_duration = time.perf_counter() - link_started
+        print(
+            "Dropbox link generation duration"
+            f" | recipient={customer_email} | generated_links={len(blocks)}"
+            f" | duration={link_duration:.3f}s"
+        )
 
     if not blocks:
         send_html(customer_email, 'Bestand niet meer gevonden', f'''
