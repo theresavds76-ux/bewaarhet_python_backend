@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import zipfile
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,11 +11,8 @@ from bewaarhet.processor import _is_allowed, _too_large, process_upload_mail
 
 
 ALLOWED_EXTENSIONS = {
-    '.pdf', '.jpg', '.jpeg', '.png', '.heic',
-    '.doc', '.docx', '.odt',
-    '.xls', '.xlsx', '.ods', '.csv',
-    '.txt', '.rtf',
-    '.ppt', '.pptx', '.odp',
+    '.pdf', '.jpg', '.jpeg', '.png',
+    '.docx', '.xlsx', '.csv', '.txt',
     '.zip',
 }
 
@@ -38,19 +37,28 @@ def _mail(att: Attachment) -> IncomingMail:
     )
 
 
-class AllowedFilesTests(unittest.TestCase):
-    def test_odt_allowed(self) -> None:
-        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
-            self.assertTrue(_is_allowed(_attachment('document.odt')))
+def _zip_bytes(files: dict[str, bytes] | None = None) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for name, content in (files or {'document.txt': b'hello'}).items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
 
-    def test_ods_allowed(self) -> None:
+
+class AllowedFilesTests(unittest.TestCase):
+    def test_odt_rejected(self) -> None:
         with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
-            self.assertTrue(_is_allowed(_attachment('sheet.ods')))
+            self.assertFalse(_is_allowed(_attachment('document.odt')))
+
+    def test_ods_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            self.assertFalse(_is_allowed(_attachment('sheet.ods')))
 
     def test_zip_allowed_up_to_15_mb(self) -> None:
         size = 15 * 1024 * 1024
         with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
-            att = _attachment('archive.zip', size=size, content=b'zip')
+            content = _zip_bytes()
+            att = _attachment('archive.zip', size=size, content=content)
             self.assertTrue(_is_allowed(att))
             self.assertFalse(_too_large(att))
 
@@ -66,7 +74,7 @@ class AllowedFilesTests(unittest.TestCase):
             self.assertFalse(_is_allowed(_attachment('video.mp4')))
 
     def test_generic_zip_gets_semantic_filename_from_context(self) -> None:
-        att = _attachment('1234.zip', content=b'zip-bytes')
+        att = _attachment('1234.zip', content=_zip_bytes())
         mail = _mail(att)
 
         with (
@@ -74,6 +82,7 @@ class AllowedFilesTests(unittest.TestCase):
             patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.add_document') as add_document,
+            patch('bewaarhet.processor.send_html') as send_html,
             patch('bewaarhet.processor.settings', SimpleNamespace(
                 allowed_extensions=ALLOWED_EXTENSIONS,
                 max_attachment_mb=15,
@@ -83,6 +92,7 @@ class AllowedFilesTests(unittest.TestCase):
             process_upload_mail(mail)
 
         ocr_space.assert_not_called()
+        send_html.assert_not_called()
         upload_file.assert_called_once()
         add_document.assert_called_once()
         record = add_document.call_args.args[0]

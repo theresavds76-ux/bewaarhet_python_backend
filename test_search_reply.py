@@ -81,6 +81,8 @@ class SearchReplyTests(unittest.TestCase):
         self.assertEqual(subject, 'Document(en) gevonden')
         self.assertIn('factuur_found.pdf', html)
         self.assertNotIn('factuur_missing.pdf', html)
+        self.assertIn('Downloadlinks zijn tijdelijk beveiligd en verlopen automatisch na enkele uren.', html)
+        self.assertNotIn('kunnen links los van elkaar verlopen', html)
 
     def test_sends_friendly_mail_when_all_matched_rows_are_missing(self) -> None:
         rows = [
@@ -181,6 +183,27 @@ class SearchReplyTests(unittest.TestCase):
         self.assertIn('polis_lemonade_17-05-2026.pdf', html)
         self.assertNotIn('factuur_infomedics_17-05-2026.pdf', html)
         self.assertNotIn('factuur_onbekend_17-05-2026.pdf', html)
+        self.assertIn('Downloadlinks zijn tijdelijk beveiligd en verlopen automatisch na enkele uren.', html)
+        self.assertNotIn('kunnen links los van elkaar verlopen', html)
+
+    def test_multiple_result_reply_explains_links_expire_independently(self) -> None:
+        rows = [
+            _row('factuur_kpn_17-05-2026.pdf', '/kpn.pdf', 1, supplier='kpn', purpose='factuur'),
+            _row('factuur_kpn_april_17-05-2026.pdf', '/kpn-april.pdf', 2, supplier='kpn', purpose='factuur'),
+        ]
+
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link', side_effect=['https://example.com/one', 'https://example.com/two']),
+            patch('bewaarhet.search_reply.send_html') as send_html,
+        ):
+            send_search_results('user@example.com', 'factuur kpn')
+
+        html = send_html.call_args.args[2]
+        self.assertEqual(html.count('Download document'), 2)
+        self.assertIn('Downloadlinks zijn tijdelijk beveiligd en verlopen automatisch na enkele uren.', html)
+        self.assertIn('Als je meerdere documenten opent, kunnen links los van elkaar verlopen.', html)
+        self.assertNotIn('Dropbox', html)
 
     def test_password_note_is_returned_for_natural_search_request(self) -> None:
         rows = [

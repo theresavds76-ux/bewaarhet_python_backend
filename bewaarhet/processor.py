@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import re
 import textwrap
+import zipfile
+from dataclasses import dataclass
 from datetime import datetime
+from io import BytesIO
+from pathlib import PurePosixPath
 from email.utils import parsedate_to_datetime
 
 from .classifier import classify_document
 from .config import settings
 from .database import add_document, connect
 from .dropbox_client import upload_file
-from .mail_client import Attachment, IncomingMail, mark_as_seen
+from .mail_client import Attachment, IncomingMail, mark_as_seen, send_html
 from .ocr import ocr_space
 from .search_reply import send_search_results
 from .utils import (
@@ -16,6 +21,7 @@ from .utils import (
     extract_search_text,
     file_extension,
     generate_filename,
+    html_escape,
     is_document_email_without_attachment,
     is_probable_search_email,
     safe_customer_folder,
@@ -28,12 +34,44 @@ from .utils import (
 )
 
 
-BLOCKED_EXTENSIONS = {
-    '.mp4', '.mov', '.avi', '.mkv', '.webm',
-    '.mp3', '.wav',
-    '.exe', '.msi', '.bat', '.cmd', '.sh',
-    '.rar', '.7z',
+SAFE_ALLOWED_EXTENSIONS = {
+    '.pdf',
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.docx',
+    '.xlsx',
+    '.csv',
+    '.txt',
+    '.zip',
 }
+
+BLOCKED_EXTENSIONS = {
+    '.exe',
+    '.js',
+    '.vbs',
+    '.bat',
+    '.cmd',
+    '.ps1',
+    '.scr',
+    '.msi',
+    '.html',
+    '.php',
+}
+
+MAX_FILENAME_CHARS = 180
+MAX_ZIP_FILES = 20
+MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 30 * 1024 * 1024
+MAX_ZIP_MEMBER_BYTES = 15 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class AttachmentValidation:
+    ok: bool
+    reason: str = ''
+    extension: str = ''
+    detected_type: str = ''
+    safe_filename: str = ''
 
 
 def _recipient_contains(mail: IncomingMail, address: str) -> bool:
@@ -151,9 +189,41 @@ def _log_storage_debug(record: dict, searchable_text: str) -> None:
     print("[storage-debug] end")
 
 
+def _sanitize_attachment_filename(filename: str) -> str:
+    name = (filename or '').strip()
+    name = re.sub(r'[\x00-\x1f\x7f]+', '', name)
+    name = name.replace('\\', '/').split('/')[-1]
+    name = name.strip(' .')
+    if len(name) > MAX_FILENAME_CHARS:
+        path = PurePosixPath(name)
+        suffix = path.suffix
+        stem_limit = max(1, MAX_FILENAME_CHARS - len(suffix))
+        name = f'{path.stem[:stem_limit]}{suffix}'
+    return name
+
+
+def _filename_has_unsafe_metadata(filename: str) -> bool:
+    raw = filename or ''
+    if not raw.strip() or len(raw) > MAX_FILENAME_CHARS:
+        return True
+    if any(ord(char) < 32 or ord(char) == 127 for char in raw):
+        return True
+    normalized = raw.replace('\\', '/')
+    if '/' in normalized or '..' in normalized:
+        return True
+    if re.match(r'(?i)^[a-z]:', raw):
+        return True
+    return _sanitize_attachment_filename(raw) != raw.strip()
+
+
+def _extension_allowed(extension: str) -> bool:
+    configured = getattr(settings, 'allowed_extensions', SAFE_ALLOWED_EXTENSIONS) or SAFE_ALLOWED_EXTENSIONS
+    return extension in SAFE_ALLOWED_EXTENSIONS and extension in configured and extension not in BLOCKED_EXTENSIONS
+
+
 def _is_allowed(att: Attachment) -> bool:
     extension = file_extension(att.filename)
-    return extension in settings.allowed_extensions and extension not in BLOCKED_EXTENSIONS
+    return _extension_allowed(extension)
 
 
 def _too_large(att: Attachment) -> bool:
@@ -162,6 +232,156 @@ def _too_large(att: Attachment) -> bool:
 
 def _is_zip(att: Attachment) -> bool:
     return file_extension(att.filename) == '.zip'
+
+
+def _detect_zip_based_type(content: bytes) -> str:
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            names = set(archive.namelist())
+    except zipfile.BadZipFile:
+        return 'invalid_zip'
+    if '[Content_Types].xml' in names and any(name.startswith('word/') for name in names):
+        return 'docx'
+    if '[Content_Types].xml' in names and any(name.startswith('xl/') for name in names):
+        return 'xlsx'
+    return 'zip'
+
+
+def _detect_content_type(content: bytes, extension: str = '') -> str:
+    sample = content[:4096]
+    if sample.startswith(b'MZ'):
+        return 'executable'
+    if sample.startswith(b'%PDF-'):
+        return 'pdf'
+    if sample.startswith(b'\xff\xd8\xff'):
+        return 'jpg'
+    if sample.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'png'
+    if sample.startswith((b'PK\x03\x04', b'PK\x05\x06', b'PK\x07\x08')):
+        return _detect_zip_based_type(content)
+    if extension in {'.txt', '.csv'}:
+        if b'\x00' in sample:
+            return 'binary'
+        try:
+            sample.decode('utf-8')
+        except UnicodeDecodeError:
+            try:
+                sample.decode('latin-1')
+            except UnicodeDecodeError:
+                return 'binary'
+        return 'text'
+    return 'unknown'
+
+
+def _content_type_matches_extension(extension: str, detected_type: str) -> bool:
+    expected = {
+        '.pdf': {'pdf'},
+        '.jpg': {'jpg'},
+        '.jpeg': {'jpg'},
+        '.png': {'png'},
+        '.zip': {'zip'},
+        '.docx': {'docx'},
+        '.xlsx': {'xlsx'},
+        '.txt': {'text'},
+        '.csv': {'text'},
+    }
+    return detected_type in expected.get(extension, set())
+
+
+def _zip_member_has_unsafe_path(name: str) -> bool:
+    normalized = (name or '').replace('\\', '/')
+    if not normalized or normalized.startswith('/'):
+        return True
+    if re.match(r'(?i)^[a-z]:', normalized):
+        return True
+    parts = [part for part in normalized.split('/') if part]
+    if any(part in {'.', '..'} for part in parts):
+        return True
+    return any(_filename_has_unsafe_metadata(part) for part in parts if part)
+
+
+def _validate_zip_contents(content: bytes) -> AttachmentValidation:
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            files = [info for info in archive.infolist() if not info.is_dir()]
+            if len(files) > MAX_ZIP_FILES:
+                return AttachmentValidation(False, 'zip has too many files', '.zip', 'zip')
+
+            total_uncompressed = 0
+            for info in files:
+                if _zip_member_has_unsafe_path(info.filename):
+                    return AttachmentValidation(False, 'zip contains unsafe path', '.zip', 'zip')
+                if info.file_size <= 0:
+                    return AttachmentValidation(False, 'zip contains empty file', '.zip', 'zip')
+                if info.file_size > MAX_ZIP_MEMBER_BYTES:
+                    return AttachmentValidation(False, 'zip member too large', '.zip', 'zip')
+                total_uncompressed += info.file_size
+                if total_uncompressed > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES:
+                    return AttachmentValidation(False, 'zip total uncompressed size too large', '.zip', 'zip')
+
+                extension = file_extension(info.filename)
+                if extension == '.zip':
+                    return AttachmentValidation(False, 'zip contains nested zip', extension, 'zip')
+                if not _extension_allowed(extension):
+                    return AttachmentValidation(False, 'zip contains unsupported file type', extension, 'zip')
+
+                with archive.open(info) as member:
+                    detected = _detect_content_type(member.read(min(info.file_size, 4096)), extension)
+                if extension in {'.docx', '.xlsx'}:
+                    with archive.open(info) as member:
+                        detected = _detect_content_type(member.read(), extension)
+                if not _content_type_matches_extension(extension, detected):
+                    return AttachmentValidation(False, 'zip member extension/content mismatch', extension, detected)
+    except zipfile.BadZipFile:
+        return AttachmentValidation(False, 'invalid zip archive', '.zip', 'invalid_zip')
+
+    return AttachmentValidation(True, extension='.zip', detected_type='zip')
+
+
+def _validate_attachment(att: Attachment) -> AttachmentValidation:
+    safe_filename = _sanitize_attachment_filename(att.filename)
+    extension = file_extension(safe_filename)
+    size = len(att.content or b'')
+
+    if _filename_has_unsafe_metadata(att.filename):
+        return AttachmentValidation(False, 'unsafe filename', extension, 'unknown', safe_filename)
+    if not extension or not _extension_allowed(extension):
+        return AttachmentValidation(False, 'unsupported file type', extension or 'none', 'unknown', safe_filename)
+    if size <= 0 or att.size <= 0:
+        return AttachmentValidation(False, 'empty file', extension, 'unknown', safe_filename)
+    if _too_large(att) or size > settings.max_attachment_mb * 1024 * 1024:
+        return AttachmentValidation(False, 'file too large', extension, 'unknown', safe_filename)
+
+    detected_type = _detect_content_type(att.content, extension)
+    if not _content_type_matches_extension(extension, detected_type):
+        return AttachmentValidation(False, 'extension/content mismatch', extension, detected_type, safe_filename)
+    if extension == '.zip':
+        zip_validation = _validate_zip_contents(att.content)
+        if not zip_validation.ok:
+            return AttachmentValidation(False, zip_validation.reason, zip_validation.extension, zip_validation.detected_type, safe_filename)
+
+    return AttachmentValidation(True, extension=extension, detected_type=detected_type, safe_filename=safe_filename)
+
+
+def _log_attachment_rejected(att: Attachment, validation: AttachmentValidation) -> None:
+    print(
+        "Attachment rejected"
+        f" | reason={sanitize_for_log(validation.reason)}"
+        f" | extension={sanitize_for_log(validation.extension)}"
+        f" | detected_type={sanitize_for_log(validation.detected_type)}"
+        f" | size={att.size}"
+    )
+
+
+def _send_attachment_rejected_reply(to: str, validation: AttachmentValidation) -> None:
+    send_html(to, 'Bestand niet opgeslagen', f'''
+        Hoi,<br><br>
+        Ik kon een bijlage niet veilig opslaan: {html_escape(validation.reason)}.<br><br>
+        Ondersteunde bestandstypen zijn: PDF, JPG, PNG, DOCX, XLSX, CSV, TXT en ZIP.<br>
+        De maximale bestandsgrootte is {settings.max_attachment_mb} MB.<br><br>
+        Groet,<br>
+        Bewaarhet
+    ''')
 
 
 def _attachment_context_text(mail: IncomingMail) -> str:
@@ -308,40 +528,40 @@ def process_upload_mail(mail: IncomingMail) -> None:
     for att in mail.attachments:
         print(f"Bijlage verwerken: {sanitize_for_log(att.filename)} ({att.size} bytes)")
 
-        if _too_large(att):
-            print("Bestand te groot, overgeslagen.")
+        validation = _validate_attachment(att)
+        if not validation.ok:
+            _log_attachment_rejected(att, validation)
+            _send_attachment_rejected_reply(mail.from_email, validation)
             continue
 
-        if not _is_allowed(att):
-            print("Bestandstype niet toegestaan, overgeslagen.")
-            continue
+        original_filename = validation.safe_filename
 
-        if _is_zip(att):
+        if validation.extension == '.zip':
             ocr_text = _attachment_context_text(mail)
             print("ZIP-archief opgeslagen zonder uitpakken of OCR.")
         else:
-            ocr_text = ocr_space(att.content, att.filename)
+            ocr_text = ocr_space(att.content, original_filename)
 
         category = classify_document(
             ocr_text,
-            att.filename,
+            original_filename,
             mail.subject,
             mail.body_text[:500],
         )
 
-        if is_note_like_content(ocr_text, mail.subject, att.filename):
+        if is_note_like_content(ocr_text, mail.subject, original_filename):
             category = 'notities'
             supplier = ''
             purpose = 'notitie'
             domain = 'overig'
         else:
-            supplier = detect_supplier(ocr_text, mail.subject, att.filename, mail.from_email)
-            purpose = detect_purpose(ocr_text, mail.subject, att.filename)
-            domain = detect_domain(ocr_text, mail.subject, att.filename, supplier, purpose)
+            supplier = detect_supplier(ocr_text, mail.subject, original_filename, mail.from_email)
+            purpose = detect_purpose(ocr_text, mail.subject, original_filename)
+            domain = detect_domain(ocr_text, mail.subject, original_filename, supplier, purpose)
 
         new_filename, document_date = generate_filename(
             category,
-            att.filename,
+            original_filename,
             ocr_text,
             date_received,
             mail.subject,
@@ -352,7 +572,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
         new_filename = _resolve_filename_collision(customer, category, new_filename)
 
         _log_supplier_debug(
-            original_filename=att.filename,
+            original_filename=original_filename,
             mail_subject=mail.subject,
             sender_email=mail.from_email,
             ocr_text=ocr_text,
@@ -374,7 +594,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
             'safe_customer_folder': customer,
             'category': category,
             'filename': new_filename,
-            'original_filename': att.filename,
+            'original_filename': original_filename,
             'document_date': document_date,
             'domain': domain,
             'supplier': supplier,

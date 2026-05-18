@@ -289,6 +289,13 @@ def _record_owned_by_sender(row, search_sender: str) -> bool:
     )
 
 
+def _download_link_notice(link_count: int) -> str:
+    notice = 'Downloadlinks zijn tijdelijk beveiligd en verlopen automatisch na enkele uren.'
+    if link_count > 1:
+        notice += ' Als je meerdere documenten opent, kunnen links los van elkaar verlopen.'
+    return notice
+
+
 def _log_search_debug(customer_email: str, query: str, rows: list) -> None:
     terms = _query_terms(query)
     cleaned_query = ' '.join(terms)
@@ -431,7 +438,7 @@ def send_search_results(customer_email: str, query: str) -> None:
         Ik heb deze documenten gevonden bij je zoekopdracht:<br><br>
         <b>{html_escape(query)}</b><br><br>
         {''.join(blocks)}
-        De downloadlinks verlopen automatisch.<br><br>
+        {html_escape(_download_link_notice(len(blocks)))}<br><br>
         Groet,<br>
         Bewaarhet
     ''')
