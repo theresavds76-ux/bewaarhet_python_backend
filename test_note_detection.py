@@ -97,6 +97,9 @@ class NoteDetectionTests(unittest.TestCase):
 
         record = add_document.call_args.args[0]
         self.assertEqual(record['category'], 'notities')
+        self.assertEqual(record['customer_identity'], 'remco@vdsintl.nl')
+        self.assertEqual(record['customer_email'], 'remco@vdsintl.nl')
+        self.assertEqual(record['safe_customer_folder'], 'remco_at_vdsintl.nl')
         self.assertEqual(record['purpose'], 'notitie')
         self.assertEqual(record['supplier'], '')
         self.assertEqual(record['filename'], 'notitie_wachtwoord_aaa_17-05-2026.pdf')

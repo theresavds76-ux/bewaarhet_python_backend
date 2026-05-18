@@ -12,6 +12,7 @@ from .mail_client import Attachment, IncomingMail, mark_as_seen
 from .ocr import ocr_space
 from .search_reply import send_search_results
 from .utils import (
+    canonical_customer_identity,
     extract_search_text,
     file_extension,
     generate_filename,
@@ -227,7 +228,8 @@ def _mail_body_pdf_bytes(subject: str, body_text: str) -> bytes:
 
 
 def process_document_body_mail(mail: IncomingMail) -> None:
-    customer = safe_customer_folder(mail.from_email)
+    customer_identity = canonical_customer_identity(mail.from_email)
+    customer = safe_customer_folder(customer_identity)
     date_received, year, month = _received_parts(mail)
     original_filename = 'email_body.pdf'
     body_without_footer, ignored_signature_chars = strip_email_signature(mail.body_text)
@@ -274,7 +276,8 @@ def process_document_body_mail(mail: IncomingMail) -> None:
     print(f"Geupload naar Dropbox: {sanitize_for_log(path)}")
 
     record = {
-        'customer_email': mail.from_email,
+        'customer_identity': customer_identity,
+        'customer_email': customer_identity,
         'safe_customer_folder': customer,
         'category': category,
         'filename': new_filename,
@@ -298,7 +301,8 @@ def process_document_body_mail(mail: IncomingMail) -> None:
 
 
 def process_upload_mail(mail: IncomingMail) -> None:
-    customer = safe_customer_folder(mail.from_email)
+    customer_identity = canonical_customer_identity(mail.from_email)
+    customer = safe_customer_folder(customer_identity)
     date_received, year, month = _received_parts(mail)
 
     for att in mail.attachments:
@@ -365,7 +369,8 @@ def process_upload_mail(mail: IncomingMail) -> None:
         print(f"Nieuwe bestandsnaam: {sanitize_for_log(new_filename)}")
 
         record = {
-            'customer_email': mail.from_email,
+            'customer_identity': customer_identity,
+            'customer_email': customer_identity,
             'safe_customer_folder': customer,
             'category': category,
             'filename': new_filename,

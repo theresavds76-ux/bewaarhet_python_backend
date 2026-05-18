@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import Iterable
 
 from .config import settings
+from .utils import canonical_customer_identity
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_identity TEXT NOT NULL DEFAULT '',
     customer_email TEXT NOT NULL,
     safe_customer_folder TEXT NOT NULL,
     category TEXT NOT NULL,
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_customer ON documents(customer_email);
+CREATE INDEX IF NOT EXISTS idx_documents_customer_identity ON documents(customer_identity);
 CREATE INDEX IF NOT EXISTS idx_documents_safe_customer ON documents(safe_customer_folder);
 CREATE INDEX IF NOT EXISTS idx_documents_search ON documents(customer_email, category, filename, year, month);
 '''
@@ -46,6 +49,9 @@ def connect() -> sqlite3.Connection:
 
 def _ensure_documents_columns(conn: sqlite3.Connection) -> None:
     existing_columns = {row['name'] for row in conn.execute("PRAGMA table_info(documents)")}
+    if 'customer_identity' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN customer_identity TEXT NOT NULL DEFAULT ''")
+        conn.execute("UPDATE documents SET customer_identity = lower(customer_email) WHERE customer_identity = ''")
     if 'original_filename' not in existing_columns:
         conn.execute("ALTER TABLE documents ADD COLUMN original_filename TEXT DEFAULT ''")
     if 'document_date' not in existing_columns:
@@ -67,21 +73,24 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
         _ensure_documents_columns(conn)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_domain_search ON documents(customer_email, domain)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_customer_identity ON documents(customer_identity)")
 
 
 def add_document(record: dict) -> None:
+    customer_identity = canonical_customer_identity(record.get('customer_identity') or record['customer_email'])
     with connect() as conn:
         _ensure_documents_columns(conn)
         conn.execute(
             '''
             INSERT OR REPLACE INTO documents
-            (customer_email, safe_customer_folder, category, filename, date_received,
+            (customer_identity, customer_email, safe_customer_folder, category, filename, date_received,
              dropbox_path, original_filename, document_date, domain, supplier, purpose, title,
              ocr_preview, ocr_text, year, month)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
-                record['customer_email'], record['safe_customer_folder'], record['category'],
+                customer_identity,
+                canonical_customer_identity(record['customer_email']), record['safe_customer_folder'], record['category'],
                 record['filename'], record['date_received'], record['dropbox_path'],
                 record.get('original_filename', ''), record.get('document_date', ''),
                 record.get('domain', ''),
@@ -163,9 +172,10 @@ def _expand_search_terms(terms: list[str]) -> list[str]:
 
 def search_documents(customer_email: str, query: str, limit: int = 10) -> list[sqlite3.Row]:
     terms = _expand_search_terms(_query_terms(query))
+    customer_identity = canonical_customer_identity(customer_email)
 
     search_parts = []
-    params: list[str] = [customer_email.lower()]
+    params: list[str] = [customer_identity]
 
     for term in terms:
         like = f'%{term}%'
@@ -176,7 +186,7 @@ def search_documents(customer_email: str, query: str, limit: int = 10) -> list[s
 
     sql = f'''
         SELECT * FROM documents
-        WHERE lower(customer_email) = ?
+        WHERE lower(COALESCE(NULLIF(customer_identity, ''), customer_email)) = ?
         AND COALESCE(missing_file, 0) = 0
         AND (
             {' OR '.join(search_parts)}

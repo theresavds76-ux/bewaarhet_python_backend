@@ -19,9 +19,15 @@ def _row(
     domain: str = 'overig',
     ocr_preview: str = '',
     ocr_text: str = '',
+    customer_email: str = 'user@example.com',
+    safe_customer_folder: str = 'user_at_example.com',
+    customer_identity: str = 'user@example.com',
 ) -> dict[str, str | int]:
     return {
         'id': document_id,
+        'customer_identity': customer_identity,
+        'customer_email': customer_email,
+        'safe_customer_folder': safe_customer_folder,
         'filename': filename,
         'supplier': supplier,
         'purpose': purpose,

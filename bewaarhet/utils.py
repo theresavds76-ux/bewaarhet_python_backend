@@ -7,7 +7,11 @@ from pathlib import Path
 
 
 def safe_customer_folder(email_address: str) -> str:
-    return email_address.strip().lower().replace('@', '_at_').replace('+', '_plus_')
+    return canonical_customer_identity(email_address).replace('@', '_at_').replace('+', '_plus_')
+
+
+def canonical_customer_identity(email_address: str) -> str:
+    return (email_address or '').strip().lower()
 
 
 def file_extension(filename: str) -> str:

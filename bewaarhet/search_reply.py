@@ -9,7 +9,7 @@ from .config import settings
 from .database import mark_missing_file, search_documents
 from .dropbox_client import is_not_found_error, temporary_link
 from .mail_client import send_html
-from .utils import html_escape, safe_customer_folder, sanitize_for_log
+from .utils import canonical_customer_identity, html_escape, safe_customer_folder, sanitize_for_log
 
 
 WEAK_QUERY_TERMS = {
@@ -265,6 +265,30 @@ def _contains_query_match(text: str, terms: list[str]) -> bool:
     return bool(_exact_matches(terms, text))
 
 
+def _dropbox_path_contains_customer_folder(dropbox_path: str, expected_folder: str) -> bool:
+    parts = [part for part in (dropbox_path or '').replace('\\', '/').split('/') if part]
+    if not parts or any(part in {'.', '..'} for part in parts):
+        return False
+    return expected_folder in parts
+
+
+def _record_owned_by_sender(row, search_sender: str) -> bool:
+    customer_identity = canonical_customer_identity(search_sender)
+    expected_folder = safe_customer_folder(customer_identity)
+
+    row_identity = canonical_customer_identity(_row_value(row, 'customer_identity'))
+    row_email = canonical_customer_identity(_row_value(row, 'customer_email'))
+    row_folder = _row_value(row, 'safe_customer_folder')
+    row_path = _row_value(row, 'dropbox_path')
+
+    return (
+        row_identity == customer_identity
+        or row_email == customer_identity
+        or row_folder == expected_folder
+        or _dropbox_path_contains_customer_folder(row_path, expected_folder)
+    )
+
+
 def _log_search_debug(customer_email: str, query: str, rows: list) -> None:
     terms = _query_terms(query)
     cleaned_query = ' '.join(terms)
@@ -299,42 +323,51 @@ def _log_search_debug(customer_email: str, query: str, rows: list) -> None:
 
 
 def send_search_results(customer_email: str, query: str) -> None:
-    rows = search_documents(customer_email, query, settings.search_result_limit)
-    _log_search_debug(customer_email, query, rows)
+    customer_identity = canonical_customer_identity(customer_email)
+    rows = search_documents(customer_identity, query, settings.search_result_limit)
+    _log_search_debug(customer_identity, query, rows)
     ranked = sorted(
         ((_score(row, query), row) for row in rows),
         key=lambda item: item[0],
         reverse=True,
     )
-    relevant = [
-        (score, row)
-        for score, row in ranked
-        if score >= MIN_SEARCH_RESULT_SCORE
-    ]
+    relevant = []
+    for score, row in ranked:
+        if score < MIN_SEARCH_RESULT_SCORE:
+            continue
+        if _record_owned_by_sender(row, customer_identity):
+            relevant.append((score, row))
+            continue
+        print(
+            "ownership check failed"
+            f" | recipient={customer_identity}"
+            f" | document_id={sanitize_for_log(_row_value(row, 'id'))}"
+            f" | filename={sanitize_for_log(_row_value(row, 'filename'))}"
+        )
 
     print(
         "Search reply generation started"
-        f" | recipient={customer_email} | relevant_count={len(relevant)}"
+        f" | recipient={customer_identity} | relevant_count={len(relevant)}"
     )
     print(
         "Preparing search reply attachments/links"
-        f" | recipient={customer_email} | link_candidates={len(relevant)} | attachment_count=0"
+        f" | recipient={customer_identity} | link_candidates={len(relevant)} | attachment_count=0"
     )
     attachment_started = time.perf_counter()
     attachment_count = 0
     attachment_duration = time.perf_counter() - attachment_started
     print(
         "Attachment preparation duration"
-        f" | recipient={customer_email} | attachment_count={attachment_count}"
+        f" | recipient={customer_identity} | attachment_count={attachment_count}"
         f" | duration={attachment_duration:.3f}s"
     )
 
     if not relevant:
         print(
             "Dropbox link generation duration"
-            f" | recipient={customer_email} | generated_links=0 | duration=0.000s"
+            f" | recipient={customer_identity} | generated_links=0 | duration=0.000s"
         )
-        send_html(customer_email, 'Geen passend document gevonden', f'''
+        send_html(customer_identity, 'Geen passend document gevonden', f'''
             Hoi,<br><br>
             Ik kon geen passend document vinden bij je zoekopdracht:<br><br>
             <b>{html_escape(query)}</b><br><br>
@@ -378,12 +411,12 @@ def send_search_results(customer_email: str, query: str) -> None:
         link_duration = time.perf_counter() - link_started
         print(
             "Dropbox link generation duration"
-            f" | recipient={customer_email} | generated_links={len(blocks)}"
+            f" | recipient={customer_identity} | generated_links={len(blocks)}"
             f" | duration={link_duration:.3f}s"
         )
 
     if not blocks:
-        send_html(customer_email, 'Bestand niet meer gevonden', f'''
+        send_html(customer_identity, 'Bestand niet meer gevonden', f'''
             Hoi,<br><br>
             Ik vond wel gegevens die lijken te passen, maar het bestand zelf kon niet meer in Dropbox worden gevonden.<br><br>
             Zoekopdracht:<br>
@@ -393,7 +426,7 @@ def send_search_results(customer_email: str, query: str) -> None:
         ''')
         return
 
-    send_html(customer_email, 'Document(en) gevonden', f'''
+    send_html(customer_identity, 'Document(en) gevonden', f'''
         Hoi,<br><br>
         Ik heb deze documenten gevonden bij je zoekopdracht:<br><br>
         <b>{html_escape(query)}</b><br><br>
