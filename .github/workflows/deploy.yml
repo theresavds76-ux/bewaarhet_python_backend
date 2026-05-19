@@ -1,0 +1,46 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: bewaarhet-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to vdsserver
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Trigger server deploy
+        env:
+          BEWAARHET_DEPLOY_HOST: ${{ secrets.BEWAARHET_DEPLOY_HOST }}
+          BEWAARHET_DEPLOY_PORT: ${{ secrets.BEWAARHET_DEPLOY_PORT }}
+          BEWAARHET_DEPLOY_USER: ${{ secrets.BEWAARHET_DEPLOY_USER }}
+          BEWAARHET_DEPLOY_SSH_KEY: ${{ secrets.BEWAARHET_DEPLOY_SSH_KEY }}
+        run: |
+          set -Eeuo pipefail
+
+          : "${BEWAARHET_DEPLOY_HOST:?Missing BEWAARHET_DEPLOY_HOST secret}"
+          : "${BEWAARHET_DEPLOY_PORT:?Missing BEWAARHET_DEPLOY_PORT secret}"
+          : "${BEWAARHET_DEPLOY_USER:?Missing BEWAARHET_DEPLOY_USER secret}"
+          : "${BEWAARHET_DEPLOY_SSH_KEY:?Missing BEWAARHET_DEPLOY_SSH_KEY secret}"
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$BEWAARHET_DEPLOY_SSH_KEY" > ~/.ssh/bewaarhet_deploy
+          chmod 600 ~/.ssh/bewaarhet_deploy
+
+          ssh-keyscan -p "$BEWAARHET_DEPLOY_PORT" "$BEWAARHET_DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+          ssh \
+            -i ~/.ssh/bewaarhet_deploy \
+            -p "$BEWAARHET_DEPLOY_PORT" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$BEWAARHET_DEPLOY_USER@$BEWAARHET_DEPLOY_HOST"
+
