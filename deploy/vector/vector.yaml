@@ -1,0 +1,45 @@
+data_dir: /vector-data-dir
+
+sources:
+  docker_logs:
+    type: docker_logs
+    auto_partial_merge: true
+    include_containers:
+      - bewaarhet_worker
+      - bewaarhet_site
+
+transforms:
+  prepare_for_better_stack:
+    type: remap
+    inputs:
+      - docker_logs
+    source: |
+      .dt = del(.timestamp)
+      .application = "bewaarhet"
+      .environment = "production"
+      .deployment_target = "vdsserver"
+
+      if exists(.container_name) {
+        .container_name = replace(to_string!(.container_name), r'^/', "")
+      }
+
+      if exists(.message) {
+        .message = to_string!(.message)
+        .message = replace(.message, r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', "[email]")
+        .message = replace(.message, r'https?://\S+', "[link]")
+        .message = replace(.message, r'(?i)(password|pass|token|secret|api[_-]?key|app[_-]?key|app[_-]?secret)[=:_ -]+[^\s,;]+', "[redacted]")
+      }
+
+sinks:
+  better_stack:
+    type: http
+    method: post
+    inputs:
+      - prepare_for_better_stack
+    uri: "https://$BETTER_STACK_INGESTING_HOST/"
+    encoding:
+      codec: json
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "$BETTER_STACK_SOURCE_TOKEN"
