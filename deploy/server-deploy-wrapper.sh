@@ -7,6 +7,7 @@ DEPLOY_DIR=/root/bewaarhet-deploy
 ENV_FILE=/root/bewaarhet.env
 LOCK_FILE="$DEPLOY_DIR/deploy.lock"
 LOG_FILE="$DEPLOY_DIR/deploy.log"
+LOG_LINES=200
 
 mkdir -p "$DEPLOY_DIR"
 exec 9>"$LOCK_FILE"
@@ -58,6 +59,76 @@ if [[ "${SSH_ORIGINAL_COMMAND:-}" == "deploy-with-env" ]]; then
   write_env_from_stdin
 fi
 
+sanitize_output() {
+  sed -E \
+    -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/[email]/g' \
+    -e 's#https?://[^[:space:]<>"]+#[link]#g' \
+    -e 's/(PASSWORD|PASS|TOKEN|SECRET|API_KEY|APP_KEY|APP_SECRET)([=:_ -]+)[^[:space:]]+/\1\2[redacted]/Ig'
+}
+
+show_status() {
+  echo "== Git =="
+  git -C "$APP_DIR" status -sb 2>/dev/null || true
+  git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || true
+  echo
+  echo "== Containers =="
+  docker ps --filter name=bewaarhet --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Networks}}'
+}
+
+show_logs() {
+  local container="$1"
+  echo "== Last ${LOG_LINES} log lines for ${container} =="
+  docker logs --tail "$LOG_LINES" "$container" 2>&1 | sanitize_output
+}
+
+run_operation() {
+  case "$1" in
+    status)
+      show_status
+      ;;
+    logs-worker)
+      show_logs bewaarhet_worker
+      ;;
+    logs-site)
+      show_logs bewaarhet_site
+      ;;
+    restart-worker)
+      docker restart bewaarhet_worker
+      show_status
+      ;;
+    restart-site)
+      docker restart bewaarhet_site
+      show_status
+      ;;
+    restart-all)
+      docker restart bewaarhet_worker bewaarhet_site
+      show_status
+      ;;
+    *)
+      echo "Unsupported Bewaarhet operation: $1" >&2
+      echo "Allowed: status, logs-worker, logs-site, restart-worker, restart-site, restart-all" >&2
+      exit 64
+      ;;
+  esac
+}
+
+if [[ "${SSH_ORIGINAL_COMMAND:-}" == operation:* ]]; then
+  operation_payload="${SSH_ORIGINAL_COMMAND#operation:}"
+  operation="${operation_payload%%:*}"
+  requested_lines="${operation_payload#"$operation"}"
+  requested_lines="${requested_lines#:}"
+  if [[ "$requested_lines" =~ ^[0-9]+$ ]]; then
+    LOG_LINES="$requested_lines"
+  fi
+  if ((LOG_LINES < 1)); then
+    LOG_LINES=1
+  elif ((LOG_LINES > 1000)); then
+    LOG_LINES=1000
+  fi
+  run_operation "$operation"
+  exit 0
+fi
+
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "--- bewaarhet deploy $(date -Is) ---"
@@ -72,4 +143,3 @@ git reset --hard "origin/$BRANCH"
 ./deploy/deploy.sh
 
 echo "--- bewaarhet deploy completed $(date -Is) ---"
-
