@@ -11,9 +11,12 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik_webgateway"
-      - "traefik.http.routers.bewaarhet_site.rule=Host(`bewaarhet.vdsintl.com`) || Host(`bewaarhet.nl`) || Host(`www.bewaarhet.nl`)"
-      - "traefik.http.routers.bewaarhet_site.entrypoints=websecure"
-      - "traefik.http.routers.bewaarhet_site.tls.certresolver=myresolver"
+      - "traefik.http.routers.bewaarhet_site_vds.rule=Host(`bewaarhet.vdsintl.com`)"
+      - "traefik.http.routers.bewaarhet_site_vds.entrypoints=websecure"
+      - "traefik.http.routers.bewaarhet_site_vds.tls=true"
+      - "traefik.http.routers.bewaarhet_site_nl.rule=Host(`bewaarhet.nl`) || Host(`www.bewaarhet.nl`)"
+      - "traefik.http.routers.bewaarhet_site_nl.entrypoints=websecure"
+      - "traefik.http.routers.bewaarhet_site_nl.tls.certresolver=myresolver"
       - "traefik.http.services.bewaarhet_site.loadbalancer.server.port=80"
 
   bewaarhet_worker:
