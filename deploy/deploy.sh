@@ -33,7 +33,7 @@ for key in "${required_keys[@]}"; do
     $0 !~ /^[[:space:]]*#/ && $1 == key {
       value = substr($0, index($0, "=") + 1)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-      if (value != "") found = 1
+      if (value != "" && value !~ /^replace_with_/) found = 1
     }
     END { exit found ? 0 : 1 }
   ' "$ENV_FILE"; then
@@ -42,7 +42,7 @@ for key in "${required_keys[@]}"; do
 done
 
 if ((${#missing_keys[@]})); then
-  printf 'Production env file is missing required value(s): %s\n' "${missing_keys[*]}" >&2
+  printf 'Production env file is missing required real value(s): %s\n' "${missing_keys[*]}" >&2
   exit 78
 fi
 
@@ -52,4 +52,3 @@ docker compose -f "$COMPOSE_FILE" build --pull
 docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 docker image prune -f --filter "until=168h" >/dev/null || true
 docker compose -f "$COMPOSE_FILE" ps
-
