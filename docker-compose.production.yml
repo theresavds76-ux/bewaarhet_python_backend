@@ -1,0 +1,24 @@
+services:
+  bewaarhet_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bewaarhet_python_backend:latest
+    container_name: bewaarhet_worker
+    restart: unless-stopped
+    env_file:
+      - ${BEWAARHET_ENV_FILE:-/root/bewaarhet.env}
+    environment:
+      DATA_DIR: /app/data
+      DATABASE_PATH: /app/data/bewaarhet.sqlite3
+      BACKUP_DIR: /app/data/backups
+      LOG_DIR: /app/data/logs
+      PYTHONUNBUFFERED: "1"
+    labels:
+      - "traefik.enable=false"
+    volumes:
+      - bewaarhet_data:/app/data
+
+volumes:
+  bewaarhet_data:
+
