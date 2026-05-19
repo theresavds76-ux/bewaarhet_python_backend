@@ -1,5 +1,24 @@
 services:
+  bewaarhet_site:
+    build:
+      context: .
+      dockerfile: Dockerfile.site
+    image: bewaarhet_site:latest
+    container_name: bewaarhet_site
+    restart: unless-stopped
+    networks:
+      - traefik_webgateway
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik_webgateway"
+      - "traefik.http.routers.bewaarhet_site.rule=Host(`bewaarhet.vdsintl.com`) || Host(`bewaarhet.nl`) || Host(`www.bewaarhet.nl`)"
+      - "traefik.http.routers.bewaarhet_site.entrypoints=websecure"
+      - "traefik.http.routers.bewaarhet_site.tls.certresolver=myresolver"
+      - "traefik.http.services.bewaarhet_site.loadbalancer.server.port=80"
+
   bewaarhet_worker:
+    profiles:
+      - worker
     build:
       context: .
       dockerfile: Dockerfile
@@ -7,7 +26,8 @@ services:
     container_name: bewaarhet_worker
     restart: unless-stopped
     env_file:
-      - ${BEWAARHET_ENV_FILE:-/root/bewaarhet.env}
+      - path: ${BEWAARHET_ENV_FILE:-/root/bewaarhet.env}
+        required: false
     environment:
       DATA_DIR: /app/data
       DATABASE_PATH: /app/data/bewaarhet.sqlite3
@@ -22,3 +42,6 @@ services:
 volumes:
   bewaarhet_data:
 
+networks:
+  traefik_webgateway:
+    external: true
