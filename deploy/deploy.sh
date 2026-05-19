@@ -9,13 +9,11 @@ ENV_FILE="${BEWAARHET_ENV_FILE:-/root/bewaarhet.env}"
 cd "$APP_DIR"
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  cat >&2 <<EOF
-Missing production env file: $ENV_FILE
-
-Create it from .env.example and fill the real Zoho, Dropbox and OCR.space credentials.
-The worker is not started without this file.
-EOF
-  exit 78
+  echo "Production env file missing: $ENV_FILE"
+  echo "Deploying static site only. The worker is not started without this file."
+  deploy_worker=0
+else
+  deploy_worker=1
 fi
 
 required_keys=(
@@ -28,27 +26,39 @@ required_keys=(
 )
 
 missing_keys=()
-for key in "${required_keys[@]}"; do
-  if ! awk -F= -v key="$key" '
-    $0 !~ /^[[:space:]]*#/ && $1 == key {
-      value = substr($0, index($0, "=") + 1)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-      if (value != "" && value !~ /^replace_with_/) found = 1
-    }
-    END { exit found ? 0 : 1 }
-  ' "$ENV_FILE"; then
-    missing_keys+=("$key")
-  fi
-done
+if [[ "$deploy_worker" == "1" ]]; then
+  for key in "${required_keys[@]}"; do
+    if ! awk -F= -v key="$key" '
+      $0 !~ /^[[:space:]]*#/ && $1 == key {
+        value = substr($0, index($0, "=") + 1)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        if (value != "" && value !~ /^replace_with_/) found = 1
+      }
+      END { exit found ? 0 : 1 }
+    ' "$ENV_FILE"; then
+      missing_keys+=("$key")
+    fi
+  done
 
-if ((${#missing_keys[@]})); then
-  printf 'Production env file is missing required real value(s): %s\n' "${missing_keys[*]}" >&2
-  exit 78
+  if ((${#missing_keys[@]})); then
+    printf 'Production env file is missing required real value(s): %s\n' "${missing_keys[*]}" >&2
+    echo "Deploying static site only. The worker is not started until the env file is complete." >&2
+    deploy_worker=0
+  fi
 fi
 
 export BEWAARHET_ENV_FILE="$ENV_FILE"
 
-docker compose -f "$COMPOSE_FILE" build --pull
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+if [[ "$deploy_worker" == "1" ]]; then
+  docker compose --profile worker -f "$COMPOSE_FILE" build --pull
+  docker compose --profile worker -f "$COMPOSE_FILE" up -d --remove-orphans
+else
+  docker compose -f "$COMPOSE_FILE" build --pull bewaarhet_site
+  docker compose -f "$COMPOSE_FILE" up -d --remove-orphans bewaarhet_site
+  if docker container inspect bewaarhet_worker >/dev/null 2>&1; then
+    docker compose --profile worker -f "$COMPOSE_FILE" stop bewaarhet_worker
+  fi
+fi
+
 docker image prune -f --filter "until=168h" >/dev/null || true
-docker compose -f "$COMPOSE_FILE" ps
+docker compose --profile worker -f "$COMPOSE_FILE" ps
