@@ -19,8 +19,9 @@ def _csv(value: str) -> set[str]:
 
 
 DEFAULT_ALLOWED_EXTENSIONS = (
-    '.pdf,.jpg,.jpeg,.png,'
-    '.docx,.xlsx,.csv,.txt,'
+    '.pdf,.doc,.docx,.odt,'
+    '.xls,.xlsx,.ods,.txt,.csv,.rtf,'
+    '.jpg,.jpeg,.png,.gif,.bmp,.tiff,'
     '.zip'
 )
 

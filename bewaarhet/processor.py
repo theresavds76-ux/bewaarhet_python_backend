@@ -37,13 +37,21 @@ from .utils import (
 
 SAFE_ALLOWED_EXTENSIONS = {
     '.pdf',
+    '.doc',
+    '.docx',
+    '.odt',
+    '.xls',
+    '.xlsx',
+    '.ods',
+    '.txt',
+    '.csv',
+    '.rtf',
     '.jpg',
     '.jpeg',
     '.png',
-    '.docx',
-    '.xlsx',
-    '.csv',
-    '.txt',
+    '.gif',
+    '.bmp',
+    '.tiff',
     '.zip',
 }
 
@@ -58,6 +66,8 @@ BLOCKED_EXTENSIONS = {
     '.msi',
     '.html',
     '.php',
+    '.docm',
+    '.xlsm',
 }
 
 MAX_FILENAME_CHARS = 180
@@ -231,7 +241,9 @@ def _filename_has_unsafe_metadata(filename: str) -> bool:
 
 def _extension_allowed(extension: str) -> bool:
     configured = getattr(settings, 'allowed_extensions', SAFE_ALLOWED_EXTENSIONS) or SAFE_ALLOWED_EXTENSIONS
-    return extension in SAFE_ALLOWED_EXTENSIONS and extension in configured and extension not in BLOCKED_EXTENSIONS
+    if not extension or extension in BLOCKED_EXTENSIONS:
+        return False
+    return extension in SAFE_ALLOWED_EXTENSIONS and extension in configured
 
 
 def _is_allowed(att: Attachment) -> bool:
@@ -251,12 +263,26 @@ def _detect_zip_based_type(content: bytes) -> str:
     try:
         with zipfile.ZipFile(BytesIO(content)) as archive:
             names = set(archive.namelist())
+            mimetype = ''
+            if 'mimetype' in names:
+                try:
+                    mimetype = archive.read('mimetype', pwd=None).decode('ascii', errors='ignore').strip()
+                except Exception:
+                    mimetype = ''
     except zipfile.BadZipFile:
         return 'invalid_zip'
     if '[Content_Types].xml' in names and any(name.startswith('word/') for name in names):
         return 'docx'
     if '[Content_Types].xml' in names and any(name.startswith('xl/') for name in names):
         return 'xlsx'
+    if mimetype == 'application/vnd.oasis.opendocument.text' or (
+        'content.xml' in names and 'META-INF/manifest.xml' in names and any(name.endswith('.odt') for name in names)
+    ):
+        return 'odt'
+    if mimetype == 'application/vnd.oasis.opendocument.spreadsheet' or (
+        'content.xml' in names and 'META-INF/manifest.xml' in names and any(name.endswith('.ods') for name in names)
+    ):
+        return 'ods'
     return 'zip'
 
 
@@ -266,12 +292,22 @@ def _detect_content_type(content: bytes, extension: str = '') -> str:
         return 'executable'
     if sample.startswith(b'%PDF-'):
         return 'pdf'
+    if sample.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+        return 'ole'
     if sample.startswith(b'\xff\xd8\xff'):
         return 'jpg'
     if sample.startswith(b'\x89PNG\r\n\x1a\n'):
         return 'png'
+    if sample.startswith((b'GIF87a', b'GIF89a')):
+        return 'gif'
+    if sample.startswith(b'BM'):
+        return 'bmp'
+    if sample.startswith((b'II*\x00', b'MM\x00*')):
+        return 'tiff'
     if sample.startswith((b'PK\x03\x04', b'PK\x05\x06', b'PK\x07\x08')):
         return _detect_zip_based_type(content)
+    if sample.lstrip().startswith(b'{\\rtf'):
+        return 'rtf'
     if extension in {'.txt', '.csv'}:
         if b'\x00' in sample:
             return 'binary'
@@ -289,14 +325,22 @@ def _detect_content_type(content: bytes, extension: str = '') -> str:
 def _content_type_matches_extension(extension: str, detected_type: str) -> bool:
     expected = {
         '.pdf': {'pdf'},
+        '.doc': {'ole'},
+        '.docx': {'docx'},
+        '.odt': {'odt'},
+        '.xls': {'ole'},
+        '.xlsx': {'xlsx'},
+        '.ods': {'ods'},
+        '.txt': {'text'},
+        '.csv': {'text'},
+        '.rtf': {'rtf'},
         '.jpg': {'jpg'},
         '.jpeg': {'jpg'},
         '.png': {'png'},
+        '.gif': {'gif'},
+        '.bmp': {'bmp'},
+        '.tiff': {'tiff'},
         '.zip': {'zip'},
-        '.docx': {'docx'},
-        '.xlsx': {'xlsx'},
-        '.txt': {'text'},
-        '.csv': {'text'},
     }
     return detected_type in expected.get(extension, set())
 
@@ -333,14 +377,14 @@ def _validate_zip_contents(content: bytes) -> AttachmentValidation:
                     return AttachmentValidation(False, 'zip total uncompressed size too large', '.zip', 'zip')
 
                 extension = file_extension(info.filename)
-                if extension == '.zip':
-                    return AttachmentValidation(False, 'zip contains nested zip', extension, 'zip')
+                if extension in {'.zip', '.rar', '.7z', '.tar', '.gz'}:
+                    return AttachmentValidation(False, 'zip contains nested archive', extension, 'zip')
                 if not _extension_allowed(extension):
                     return AttachmentValidation(False, 'zip contains unsupported file type', extension, 'zip')
 
                 with archive.open(info) as member:
                     detected = _detect_content_type(member.read(min(info.file_size, 4096)), extension)
-                if extension in {'.docx', '.xlsx'}:
+                if extension in {'.docx', '.xlsx', '.odt', '.ods'}:
                     with archive.open(info) as member:
                         detected = _detect_content_type(member.read(), extension)
                 if not _content_type_matches_extension(extension, detected):
@@ -390,7 +434,7 @@ def _send_attachment_rejected_reply(to: str, validation: AttachmentValidation) -
     send_html(to, 'Bestand niet opgeslagen', f'''
         Hoi,<br><br>
         Ik kon een bijlage niet veilig opslaan: {html_escape(validation.reason)}.<br><br>
-        Ondersteunde bestandstypen zijn: PDF, JPG, PNG, DOCX, XLSX, CSV, TXT en ZIP.<br>
+        Ondersteunde bestandstypen zijn: PDF, DOC, DOCX, ODT, XLS, XLSX, ODS, TXT, CSV, RTF, JPG, JPEG, PNG, GIF, BMP, TIFF en ZIP.<br>
         De maximale bestandsgrootte is {settings.max_attachment_mb} MB.<br><br>
         Groet,<br>
         Bewaarhet

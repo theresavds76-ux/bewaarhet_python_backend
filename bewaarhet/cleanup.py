@@ -23,7 +23,7 @@ TESTDATA_FILENAME_TERMS = (
     'tmp',
 )
 
-UNSUPPORTED_LEGACY_EXTENSIONS = {'.odt', '.ods', '.webp'}
+UNSUPPORTED_LEGACY_EXTENSIONS = {'.webp'}
 TEMP_DEV_PATH_PARTS = {'tmp', 'temp', 'dev', 'development', 'sandbox'}
 
 

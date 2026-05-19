@@ -11,9 +11,10 @@ from bewaarhet.processor import _is_allowed, _too_large, process_upload_mail
 
 
 ALLOWED_EXTENSIONS = {
-    '.pdf', '.jpg', '.jpeg', '.png',
-    '.docx', '.xlsx', '.csv', '.txt',
-    '.zip',
+    '.pdf', '.doc', '.docx', '.odt',
+    '.xls', '.xlsx', '.ods', '.txt', '.csv', '.rtf',
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff',
+    '.zip', '.rar', '.7z', '.tar', '.gz',
 }
 
 
@@ -45,14 +46,46 @@ def _zip_bytes(files: dict[str, bytes] | None = None) -> bytes:
     return buffer.getvalue()
 
 
-class AllowedFilesTests(unittest.TestCase):
-    def test_odt_rejected(self) -> None:
-        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
-            self.assertFalse(_is_allowed(_attachment('document.odt')))
+def _odf_bytes(mimetype: str) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, 'w') as archive:
+        archive.writestr('mimetype', mimetype, compress_type=zipfile.ZIP_STORED)
+        archive.writestr('content.xml', b'<document>safe</document>')
+        archive.writestr('META-INF/manifest.xml', b'<manifest />')
+    return buffer.getvalue()
 
-    def test_ods_rejected(self) -> None:
+
+class AllowedFilesTests(unittest.TestCase):
+    def test_odt_allowed(self) -> None:
         with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
-            self.assertFalse(_is_allowed(_attachment('sheet.ods')))
+            self.assertTrue(_is_allowed(_attachment('document.odt', content=_odf_bytes('application/vnd.oasis.opendocument.text'))))
+
+    def test_ods_allowed(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            self.assertTrue(_is_allowed(_attachment('sheet.ods', content=_odf_bytes('application/vnd.oasis.opendocument.spreadsheet'))))
+
+    def test_rtf_allowed(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            self.assertTrue(_is_allowed(_attachment('note.rtf', content=b'{\\rtf1 safe}')))
+
+    def test_docm_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS | {'.docm'}, max_attachment_mb=15)):
+            self.assertFalse(_is_allowed(_attachment('macro.docm')))
+
+    def test_xlsm_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS | {'.xlsm'}, max_attachment_mb=15)):
+            self.assertFalse(_is_allowed(_attachment('macro.xlsm')))
+
+    def test_unknown_extension_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS | {'.madeup'}, max_attachment_mb=15)):
+            self.assertFalse(_is_allowed(_attachment('document.madeup')))
+
+    def test_unvalidated_archives_rejected_even_if_configured(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            self.assertFalse(_is_allowed(_attachment('archive.rar')))
+            self.assertFalse(_is_allowed(_attachment('archive.7z')))
+            self.assertFalse(_is_allowed(_attachment('archive.tar')))
+            self.assertFalse(_is_allowed(_attachment('archive.gz')))
 
     def test_zip_allowed_up_to_15_mb(self) -> None:
         size = 15 * 1024 * 1024

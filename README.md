@@ -83,18 +83,26 @@ Zie `.env.example` voor alle huidige configuratiesleutels. Belangrijk:
 De huidige veilige allowlist is:
 
 - `.pdf`
+- `.doc`
+- `.docx`
+- `.odt`
+- `.xls`
+- `.xlsx`
+- `.ods`
+- `.txt`
+- `.csv`
+- `.rtf`
 - `.jpg`
 - `.jpeg`
 - `.png`
-- `.docx`
-- `.xlsx`
-- `.csv`
-- `.txt`
+- `.gif`
+- `.bmp`
+- `.tiff`
 - `.zip`
 
 Standaard maximale bestandsgrootte: 15 MB.
 
-Geblokkeerde of niet-ondersteunde typen zoals `.exe`, `.js`, `.vbs`, `.bat`, `.cmd`, `.ps1`, `.scr`, `.msi`, `.html`, `.php` en onbekende extensies worden geweigerd.
+Geblokkeerde of niet-ondersteunde typen zoals `.exe`, `.js`, `.vbs`, `.bat`, `.cmd`, `.ps1`, `.scr`, `.msi`, `.html`, `.php`, macro-bestanden zoals `.docm` en `.xlsm`, onbekende extensies en archieven zonder veilige validator zoals `.rar`, `.7z`, `.tar` en `.gz` worden geweigerd.
 
 ZIP-bestanden worden veilig gevalideerd op inhoud, padveiligheid, bestandstelling en grootte. ZIP-bestanden worden als archief opgeslagen en niet uitgepakt voor businesslogica of OCR.
 

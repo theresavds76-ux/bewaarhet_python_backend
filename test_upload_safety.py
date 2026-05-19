@@ -13,14 +13,26 @@ from bewaarhet.processor import _sanitize_attachment_filename, process_upload_ma
 
 ALLOWED_EXTENSIONS = {
     '.pdf',
+    '.doc',
+    '.docx',
+    '.odt',
+    '.xls',
+    '.xlsx',
+    '.ods',
+    '.txt',
+    '.csv',
+    '.rtf',
     '.jpg',
     '.jpeg',
     '.png',
-    '.docx',
-    '.xlsx',
-    '.csv',
-    '.txt',
+    '.gif',
+    '.bmp',
+    '.tiff',
     '.zip',
+    '.rar',
+    '.7z',
+    '.tar',
+    '.gz',
 }
 
 
@@ -52,6 +64,15 @@ def _zip_bytes(files: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+def _odf_bytes(mimetype: str) -> bytes:
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, 'w') as archive:
+        archive.writestr('mimetype', mimetype, compress_type=zipfile.ZIP_STORED)
+        archive.writestr('content.xml', b'<document>safe</document>')
+        archive.writestr('META-INF/manifest.xml', b'<manifest />')
+    return buffer.getvalue()
+
+
 class UploadSafetyTests(unittest.TestCase):
     def _settings(self) -> SimpleNamespace:
         return SimpleNamespace(
@@ -66,6 +87,63 @@ class UploadSafetyTests(unittest.TestCase):
         with (
             patch('bewaarhet.processor.settings', self._settings()),
             patch('bewaarhet.processor.ocr_space', return_value='Factuur test') as ocr_space,
+            patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.add_document') as add_document,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        ocr_space.assert_called_once()
+        upload_file.assert_called_once()
+        add_document.assert_called_once()
+        send_html.assert_not_called()
+
+    def test_valid_odt_accepted(self) -> None:
+        att = _attachment('document.odt', _odf_bytes('application/vnd.oasis.opendocument.text'))
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.ocr_space', return_value='ODT tekst') as ocr_space,
+            patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.add_document') as add_document,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        ocr_space.assert_called_once()
+        upload_file.assert_called_once()
+        add_document.assert_called_once()
+        send_html.assert_not_called()
+
+    def test_valid_ods_accepted(self) -> None:
+        att = _attachment('sheet.ods', _odf_bytes('application/vnd.oasis.opendocument.spreadsheet'))
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.ocr_space', return_value='ODS tekst') as ocr_space,
+            patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.add_document') as add_document,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        ocr_space.assert_called_once()
+        upload_file.assert_called_once()
+        add_document.assert_called_once()
+        send_html.assert_not_called()
+
+    def test_valid_rtf_accepted(self) -> None:
+        att = _attachment('note.rtf', b'{\\rtf1 safe text}')
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.ocr_space', return_value='RTF tekst') as ocr_space,
             patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
             patch('bewaarhet.processor.upload_file') as upload_file,
             patch('bewaarhet.processor.add_document') as add_document,
@@ -111,6 +189,68 @@ class UploadSafetyTests(unittest.TestCase):
         self.assertIn('reason=extension/content mismatch', output.getvalue())
         self.assertIn('detected_type=executable', output.getvalue())
 
+    def test_odt_with_exe_content_rejected(self) -> None:
+        att = _attachment('document.odt', b'MZ executable')
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        upload_file.assert_not_called()
+        send_html.assert_called_once()
+
+    def test_docm_rejected(self) -> None:
+        settings = self._settings()
+        settings.allowed_extensions = settings.allowed_extensions | {'.docm'}
+        att = _attachment('macro.docm', _zip_bytes({'word/document.xml': b'<xml />'}))
+
+        with (
+            patch('bewaarhet.processor.settings', settings),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        upload_file.assert_not_called()
+        send_html.assert_called_once()
+
+    def test_xlsm_rejected(self) -> None:
+        settings = self._settings()
+        settings.allowed_extensions = settings.allowed_extensions | {'.xlsm'}
+        att = _attachment('macro.xlsm', _zip_bytes({'xl/workbook.xml': b'<xml />'}))
+
+        with (
+            patch('bewaarhet.processor.settings', settings),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        upload_file.assert_not_called()
+        send_html.assert_called_once()
+
+    def test_unknown_extension_rejected(self) -> None:
+        settings = self._settings()
+        settings.allowed_extensions = settings.allowed_extensions | {'.madeup'}
+        att = _attachment('document.madeup', b'safe')
+
+        with (
+            patch('bewaarhet.processor.settings', settings),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        upload_file.assert_not_called()
+        send_html.assert_called_once()
+
     def test_zip_with_traversal_path_rejected(self) -> None:
         att = _attachment('archive.zip', _zip_bytes({'../evil.txt': b'hello'}))
 
@@ -143,6 +283,20 @@ class UploadSafetyTests(unittest.TestCase):
     def test_zip_with_nested_zip_rejected(self) -> None:
         inner_zip = _zip_bytes({'inner.txt': b'hello'})
         att = _attachment('archive.zip', _zip_bytes({'nested.zip': inner_zip}))
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        upload_file.assert_not_called()
+        send_html.assert_called_once()
+
+    def test_zip_with_dangerous_content_rejected(self) -> None:
+        att = _attachment('archive.zip', _zip_bytes({'run.exe': b'MZ executable'}))
 
         with (
             patch('bewaarhet.processor.settings', self._settings()),
