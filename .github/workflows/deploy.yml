@@ -24,6 +24,8 @@ jobs:
           BEWAARHET_DEPLOY_USER: ${{ secrets.BEWAARHET_DEPLOY_USER }}
           BEWAARHET_DEPLOY_SSH_KEY: ${{ secrets.BEWAARHET_DEPLOY_SSH_KEY }}
           ALLOWED_EXTENSIONS: ${{ vars.ALLOWED_EXTENSIONS }}
+          BETTER_STACK_INGESTING_HOST: ${{ vars.BETTER_STACK_INGESTING_HOST }}
+          BETTER_STACK_SOURCE_TOKEN: ${{ secrets.BETTER_STACK_SOURCE_TOKEN }}
           DATABASE_PATH: ${{ vars.DATABASE_PATH }}
           DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
           DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
@@ -72,6 +74,11 @@ jobs:
           write_env() {
             printf '%s=%s\n' "$1" "$2" >> bewaarhet.env
           }
+          write_env_if_set() {
+            if [ -n "${2:-}" ]; then
+              write_env "$1" "$2"
+            fi
+          }
 
           : > bewaarhet.env
           write_env ZOHO_EMAIL "$ZOHO_EMAIL"
@@ -93,6 +100,8 @@ jobs:
           write_env SEARCH_RESULT_LIMIT "$SEARCH_RESULT_LIMIT"
           write_env MAX_ATTACHMENT_MB "$MAX_ATTACHMENT_MB"
           write_env ALLOWED_EXTENSIONS "$ALLOWED_EXTENSIONS"
+          write_env_if_set BETTER_STACK_SOURCE_TOKEN "${BETTER_STACK_SOURCE_TOKEN:-}"
+          write_env_if_set BETTER_STACK_INGESTING_HOST "${BETTER_STACK_INGESTING_HOST:-}"
 
           install -m 700 -d ~/.ssh
           printf '%s\n' "$BEWAARHET_DEPLOY_SSH_KEY" > ~/.ssh/bewaarhet_deploy

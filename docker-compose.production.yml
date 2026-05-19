@@ -42,8 +42,27 @@ services:
     volumes:
       - bewaarhet_data:/app/data
 
+  bewaarhet_logs:
+    profiles:
+      - logging
+    image: timberio/vector:0.55.0-alpine
+    container_name: bewaarhet_logs
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      BETTER_STACK_INGESTING_HOST: ${BETTER_STACK_INGESTING_HOST:-}
+      BETTER_STACK_SOURCE_TOKEN: ${BETTER_STACK_SOURCE_TOKEN:-}
+      VECTOR_LOG: info
+    labels:
+      - "traefik.enable=false"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./deploy/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - bewaarhet_vector_data:/vector-data-dir
+
 volumes:
   bewaarhet_data:
+  bewaarhet_vector_data:
 
 networks:
   traefik_webgateway:

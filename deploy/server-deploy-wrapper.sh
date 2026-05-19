@@ -77,8 +77,30 @@ show_status() {
 
 show_logs() {
   local container="$1"
+  if ! docker container inspect "$container" >/dev/null 2>&1; then
+    echo "Container is not present: $container"
+    return 0
+  fi
   echo "== Last ${LOG_LINES} log lines for ${container} =="
   docker logs --tail "$LOG_LINES" "$container" 2>&1 | sanitize_output
+}
+
+restart_containers() {
+  local existing=()
+  local container
+
+  for container in "$@"; do
+    if docker container inspect "$container" >/dev/null 2>&1; then
+      existing+=("$container")
+    else
+      echo "Container is not present, skipping restart: $container"
+    fi
+  done
+
+  if ((${#existing[@]})); then
+    docker restart "${existing[@]}"
+  fi
+  show_status
 }
 
 run_operation() {
@@ -92,21 +114,24 @@ run_operation() {
     logs-site)
       show_logs bewaarhet_site
       ;;
+    logs-collector)
+      show_logs bewaarhet_logs
+      ;;
     restart-worker)
-      docker restart bewaarhet_worker
-      show_status
+      restart_containers bewaarhet_worker
       ;;
     restart-site)
-      docker restart bewaarhet_site
-      show_status
+      restart_containers bewaarhet_site
+      ;;
+    restart-collector)
+      restart_containers bewaarhet_logs
       ;;
     restart-all)
-      docker restart bewaarhet_worker bewaarhet_site
-      show_status
+      restart_containers bewaarhet_worker bewaarhet_site bewaarhet_logs
       ;;
     *)
       echo "Unsupported Bewaarhet operation: $1" >&2
-      echo "Allowed: status, logs-worker, logs-site, restart-worker, restart-site, restart-all" >&2
+      echo "Allowed: status, logs-worker, logs-site, logs-collector, restart-worker, restart-site, restart-collector, restart-all" >&2
       exit 64
       ;;
   esac

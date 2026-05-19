@@ -11,8 +11,10 @@ on:
           - status
           - logs-worker
           - logs-site
+          - logs-collector
           - restart-worker
           - restart-site
+          - restart-collector
           - restart-all
       log_lines:
         description: Number of log lines for log operations
@@ -47,7 +49,7 @@ jobs:
           : "${BEWAARHET_DEPLOY_SSH_KEY:?Missing BEWAARHET_DEPLOY_SSH_KEY secret}"
 
           case "$OPERATION" in
-            status|logs-worker|logs-site|restart-worker|restart-site|restart-all) ;;
+            status|logs-worker|logs-site|logs-collector|restart-worker|restart-site|restart-collector|restart-all) ;;
             *)
               echo "Unsupported operation: $OPERATION" >&2
               exit 64
