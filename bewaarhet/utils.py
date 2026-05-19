@@ -382,6 +382,164 @@ def detect_note_filename_hint(text: str, subject: str = '') -> str:
     return '_'.join(words[:4])
 
 
+GENERAL_PURPOSES = {
+    'recept': {
+        'strong': (
+            'recept',
+            'ingredienten',
+            'ingrediënten',
+            'bereidingswijze',
+        ),
+        'medium': (
+            'gram',
+            'eetlepel',
+            'theelepel',
+            'oven',
+            'koken',
+            'bakken',
+            'kip',
+            'rijst',
+            'aardappel',
+            'knoflook',
+            'ui',
+            'kruiden',
+            'masala',
+            'kerrie',
+        ),
+    },
+    'handleiding': {
+        'strong': ('handleiding', 'manual', 'gebruikershandleiding', 'installatiehandleiding'),
+        'medium': ('stap voor stap', 'installeren', 'instellen', 'instructies'),
+    },
+    'garantie': {
+        'strong': ('garantie', 'warranty', 'garantiebewijs', 'garantievoorwaarden'),
+        'medium': ('serienummer', 'aankoopdatum', 'garantieperiode'),
+    },
+    'brief': {
+        'strong': ('geachte', 'beste', 'betreft', 'brief'),
+        'medium': ('met vriendelijke groet', 'hoogachtend'),
+    },
+    'afspraak': {
+        'strong': ('afspraak', 'appointment', 'uitnodiging'),
+        'medium': ('datum', 'tijd', 'locatie'),
+    },
+    'formulier': {
+        'strong': ('formulier', 'form', 'aanvraagformulier', 'inschrijfformulier'),
+        'medium': ('invullen', 'ondertekenen', 'naam:', 'adres:'),
+    },
+}
+
+
+GENERAL_PURPOSE_ORDER = ('recept', 'handleiding', 'garantie', 'brief', 'afspraak', 'formulier')
+
+
+def detect_general_document_purpose(text: str, subject: str = '', original_filename: str = '') -> str:
+    """Detect conservative purpose tags for non-business/general documents."""
+    haystack = f'{subject}\n{original_filename}\n{text}'.lower()
+    if not haystack.strip():
+        return ''
+
+    business_blockers = (
+        'factuur',
+        'factuurnummer',
+        'invoice',
+        'btw',
+        'iban',
+        'belastingdienst',
+        'dienst toeslagen',
+        'betalingsregeling',
+        'betalingsherinnering',
+        'huurnota',
+        'contract',
+        'overeenkomst',
+        'polisnummer',
+    )
+    if any(blocker in haystack for blocker in business_blockers):
+        return ''
+
+    for purpose in GENERAL_PURPOSE_ORDER:
+        groups = GENERAL_PURPOSES[purpose]
+        strong_matches = sum(1 for term in groups['strong'] if term in haystack)
+        medium_matches = sum(1 for term in groups['medium'] if term in haystack)
+        if strong_matches or medium_matches >= 3:
+            return purpose
+    return ''
+
+
+def detect_general_document_title(text: str, subject: str = '', purpose: str = '') -> str:
+    """Extract a short, safe title for filenames of general overig documents."""
+    combined = f'{subject}\n{text}'.strip()
+    cleaned_text, _ = strip_email_signature(combined)
+    if not cleaned_text:
+        return ''
+
+    forbidden_terms = {
+        'wachtwoord',
+        'password',
+        'pincode',
+        'login',
+        'gebruikersnaam',
+        'iban',
+        'rekeningnummer',
+        'token',
+        'secret',
+        'api_key',
+    }
+    generic_lines = {
+        '',
+        'recept',
+        'ingredienten',
+        'ingrediënten',
+        'bereidingswijze',
+        'benodigdheden',
+        'notitie',
+        'document',
+        'bestand',
+        'handleiding',
+        'formulier',
+    }
+    stop_words = {
+        'de',
+        'het',
+        'een',
+        'en',
+        'voor',
+        'van',
+        'met',
+        'mijn',
+        'nieuwe',
+        'document',
+        'bestand',
+        'test',
+    }
+
+    for raw_line in cleaned_text.splitlines():
+        line = re.sub(r'\s+', ' ', raw_line).strip(' -_*#\t')
+        if not line:
+            continue
+        lowered = line.lower().strip(':')
+        if lowered in generic_lines:
+            continue
+        if any(term in lowered for term in forbidden_terms):
+            continue
+        if '://' in lowered or '@' in lowered:
+            continue
+        if len(line) > 80 or len(line.split()) > 8:
+            continue
+        if re.search(r'\b(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}-\d{2}-\d{2})\b', line):
+            continue
+
+        line = re.sub(r'(?i)^(recept|titel|onderwerp)\s*[:\-]\s*', '', line).strip()
+        words = [
+            word for word in clean_filename(line).replace('-', '_').split('_')
+            if word and word not in stop_words and not word.isdigit()
+        ]
+        if words:
+            return '_'.join(words[:4])
+
+    return purpose if purpose and purpose not in {'overig', 'notitie'} else ''
+
+
 def extract_labeled_value(ocr_text: str, labels: list[str], stop_labels: list[str] | None = None) -> str:
     """Extract a value from OCR text after an exact label, inline or on the next line."""
     if not ocr_text:
@@ -1127,6 +1285,12 @@ def generate_filename(
         'juridisch_advies': 'juridisch_advies',
         'aankoopbewijs': 'aankoopbewijs',
         'garantiebewijs': 'garantiebewijs',
+        'garantie': 'garantie',
+        'recept': 'recept',
+        'handleiding': 'handleiding',
+        'brief': 'brief',
+        'afspraak': 'afspraak',
+        'formulier': 'formulier',
         'notitie': 'notitie',
     }
     if purpose in semantic_document_types and not is_tax_purpose:
@@ -1180,6 +1344,15 @@ def generate_filename(
     if purpose == 'coc':
         certificate_parts = detect_certificate_filename_parts(ocr_text)
         parts = [document_type] + (certificate_parts or [supplier])
+        parts.append(display_date)
+        filename = '_'.join(parts) + extension
+        return clean_filename(filename), document_date
+
+    if category == 'overig' and purpose in {'recept', 'handleiding', 'garantie', 'brief', 'afspraak', 'formulier'}:
+        title_hint = detect_general_document_title(ocr_text, subject, purpose)
+        parts = [document_type]
+        if title_hint and title_hint != document_type:
+            parts.append(title_hint)
         parts.append(display_date)
         filename = '_'.join(parts) + extension
         return clean_filename(filename), document_date
@@ -1326,6 +1499,9 @@ def detect_purpose(ocr_text: str, subject: str, original_filename: str = '') -> 
         return 'bon'
     if 'receipt' in text and any(k in text for k in ['cash register', 'till', 'store', 'terminal', 'card payment']):
         return 'bon'
+    general_purpose = detect_general_document_purpose(ocr_text, subject, original_filename)
+    if general_purpose:
+        return general_purpose
     return ''
 
 
