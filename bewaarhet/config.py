@@ -18,6 +18,13 @@ def _csv(value: str) -> set[str]:
     return items
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {'1', 'true', 'yes', 'on', 'ja'}
+
+
 DEFAULT_ALLOWED_EXTENSIONS = (
     '.pdf,.doc,.docx,.odt,'
     '.xls,.xlsx,.ods,.txt,.csv,.rtf,'
@@ -63,9 +70,23 @@ class Settings:
     consistency_slow_threshold_seconds: float = float(os.getenv('CONSISTENCY_SLOW_THRESHOLD_SECONDS', '2.0'))
 
     max_attachment_mb: int = int(os.getenv('MAX_ATTACHMENT_MB', '15'))
+    max_file_size_mb: int = int(os.getenv('MAX_FILE_SIZE_MB', os.getenv('MAX_ATTACHMENT_MB', '15')))
     allowed_extensions: set[str] = None  # type: ignore[assignment]
     search_result_limit: int = int(os.getenv('SEARCH_RESULT_LIMIT', '10'))
     poll_seconds: int = int(os.getenv('POLL_SECONDS', '60'))
+    customer_onboarding_enabled: bool = _bool_env('CUSTOMER_ONBOARDING_ENABLED', True)
+    max_trial_documents: int = int(os.getenv('MAX_TRIAL_DOCUMENTS', '10'))
+    max_trial_storage_mb: int = int(os.getenv('MAX_TRIAL_STORAGE_MB', '100'))
+    max_trial_file_size_mb: int = int(os.getenv('MAX_TRIAL_FILE_SIZE_MB', os.getenv('MAX_FILE_SIZE_MB', os.getenv('MAX_ATTACHMENT_MB', '15'))))
+    max_trial_mails_per_hour: int = int(os.getenv('MAX_TRIAL_MAILS_PER_HOUR', '20'))
+    max_trial_documents_per_day: int = int(os.getenv('MAX_TRIAL_DOCUMENTS_PER_DAY', '25'))
+    trial_allowed_extensions: set[str] = None  # type: ignore[assignment]
+    welcome_email_subject: str = os.getenv('WELCOME_EMAIL_SUBJECT', 'Welkom bij Bewaarhet')
+    public_site_url: str = os.getenv('PUBLIC_SITE_URL', 'https://bewaarhet.nl').rstrip('/')
+    faq_url: str = os.getenv('FAQ_URL', '').strip()
+    activation_url: str = os.getenv('ACTIVATION_URL', '').strip()
+    verification_token_secret: str = os.getenv('VERIFICATION_TOKEN_SECRET', '')
+    verification_token_ttl_hours: int = int(os.getenv('VERIFICATION_TOKEN_TTL_HOURS', '72'))
 
     def __post_init__(self):
         configured_extensions = _csv(os.getenv('ALLOWED_EXTENSIONS', ''))
@@ -73,6 +94,11 @@ class Settings:
             self,
             'allowed_extensions',
             _csv(DEFAULT_ALLOWED_EXTENSIONS) | configured_extensions,
+        )
+        object.__setattr__(
+            self,
+            'trial_allowed_extensions',
+            _csv(os.getenv('TRIAL_ALLOWED_EXTENSIONS', '.pdf,.jpg,.jpeg,.png')),
         )
 
     def ensure_directories(self) -> None:

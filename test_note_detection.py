@@ -91,6 +91,7 @@ class NoteDetectionTests(unittest.TestCase):
                 'bewaarhet.processor._resolve_filename_collision',
                 side_effect=lambda _customer, _category, filename: filename,
             ),
+            patch('bewaarhet.processor._prepare_customer_for_storage', return_value=True),
             redirect_stdout(output),
         ):
             process_mail(mail)
@@ -125,6 +126,7 @@ class NoteDetectionTests(unittest.TestCase):
                 'bewaarhet.processor._resolve_filename_collision',
                 side_effect=lambda _customer, _category, filename: filename,
             ),
+            patch('bewaarhet.processor._prepare_customer_for_storage', return_value=True),
         ):
             process_mail(mail)
 
@@ -143,6 +145,7 @@ class NoteDetectionTests(unittest.TestCase):
                 'bewaarhet.processor._resolve_filename_collision',
                 side_effect=lambda _customer, _category, filename: filename,
             ),
+            patch('bewaarhet.processor._prepare_customer_for_storage', return_value=True),
         ):
             process_mail(mail)
 

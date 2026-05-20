@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS rate_limit_cooldowns (
     cooldown_until INTEGER NOT NULL,
     PRIMARY KEY(sender, action)
 );
+
+CREATE TABLE IF NOT EXISTS customers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT DEFAULT NULL,
+    status TEXT NOT NULL DEFAULT 'pending_verification' CHECK(status IN ('pending_verification', 'trial', 'active', 'blocked')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    document_count INTEGER NOT NULL DEFAULT 0,
+    storage_used_mb REAL NOT NULL DEFAULT 0,
+    last_activity_at TEXT DEFAULT NULL,
+    trial_started_at TEXT DEFAULT NULL,
+    notes TEXT DEFAULT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
 '''
 
 
@@ -98,7 +114,12 @@ def _schema_update_needed(conn: sqlite3.Connection) -> bool:
         return False
     if 'documents' not in tables:
         return True
-    if not {'rate_limit_events', 'rate_limit_cooldowns'}.issubset(tables):
+    if not {'rate_limit_events', 'rate_limit_cooldowns', 'customers'}.issubset(tables):
+        return True
+    customer_definition = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'customers'"
+    ).fetchone()
+    if customer_definition and 'pending_verification' not in (customer_definition['sql'] or ''):
         return True
     existing_columns = {row['name'] for row in conn.execute("PRAGMA table_info(documents)")}
     return not DOCUMENT_COLUMNS.issubset(existing_columns)
@@ -157,6 +178,7 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
         _ensure_documents_columns(conn)
         ensure_rate_limit_tables(conn)
+        ensure_customer_table(conn)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_domain_search ON documents(customer_email, domain)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_customer_identity ON documents(customer_identity)")
         conn.commit()
@@ -191,6 +213,148 @@ def ensure_rate_limit_tables(conn: sqlite3.Connection) -> None:
     )
 
 
+def ensure_customer_table(conn: sqlite3.Connection) -> None:
+    if 'customers' in _table_names(conn):
+        definition = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'customers'"
+        ).fetchone()
+        if definition and 'pending_verification' not in (definition['sql'] or ''):
+            conn.execute('ALTER TABLE customers RENAME TO customers_legacy')
+            conn.execute(
+                '''
+                CREATE TABLE customers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT NOT NULL UNIQUE,
+                    name TEXT DEFAULT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending_verification' CHECK(status IN ('pending_verification', 'trial', 'active', 'blocked')),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    document_count INTEGER NOT NULL DEFAULT 0,
+                    storage_used_mb REAL NOT NULL DEFAULT 0,
+                    last_activity_at TEXT DEFAULT NULL,
+                    trial_started_at TEXT DEFAULT NULL,
+                    notes TEXT DEFAULT NULL
+                )
+                '''
+            )
+            conn.execute(
+                '''
+                INSERT INTO customers
+                (id, email, name, status, created_at, updated_at, document_count, storage_used_mb, last_activity_at, trial_started_at, notes)
+                SELECT id, email, name, status, created_at, updated_at, document_count, storage_used_mb, last_activity_at, trial_started_at, notes
+                FROM customers_legacy
+                '''
+            )
+            conn.execute('DROP TABLE customers_legacy')
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS customers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE,
+            name TEXT DEFAULT NULL,
+            status TEXT NOT NULL DEFAULT 'pending_verification' CHECK(status IN ('pending_verification', 'trial', 'active', 'blocked')),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            document_count INTEGER NOT NULL DEFAULT 0,
+            storage_used_mb REAL NOT NULL DEFAULT 0,
+            last_activity_at TEXT DEFAULT NULL,
+            trial_started_at TEXT DEFAULT NULL,
+            notes TEXT DEFAULT NULL
+        )
+        '''
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status)")
+
+
+def get_customer(email: str) -> sqlite3.Row | None:
+    customer_email = canonical_customer_identity(email)
+    with closing(connect()) as conn:
+        ensure_customer_table(conn)
+        return conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
+
+
+def ensure_customer(email: str, *, name: str | None = None) -> tuple[sqlite3.Row, bool]:
+    customer_email = canonical_customer_identity(email)
+    if not customer_email:
+        raise ValueError('customer email is required')
+    with closing(connect()) as conn:
+        ensure_customer_table(conn)
+        existing = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
+        if existing:
+            return existing, False
+        conn.execute(
+            '''
+            INSERT INTO customers
+            (email, name, status, trial_started_at, last_activity_at)
+            VALUES (?, ?, 'pending_verification', NULL, CURRENT_TIMESTAMP)
+            ''',
+            (customer_email, name),
+        )
+        conn.commit()
+        created = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
+        if created is None:
+            raise RuntimeError('customer creation failed')
+        return created, True
+
+
+def update_customer_status(email: str, status: str, *, name: str | None = None, notes: str | None = None) -> sqlite3.Row:
+    if status not in {'pending_verification', 'trial', 'active', 'blocked'}:
+        raise ValueError(f'unsupported customer status: {status}')
+    customer_email = canonical_customer_identity(email)
+    with closing(connect()) as conn:
+        ensure_customer_table(conn)
+        conn.execute(
+            '''
+            INSERT INTO customers (email, name, status, trial_started_at, last_activity_at)
+            VALUES (?, ?, ?, CASE WHEN ? = 'trial' THEN CURRENT_TIMESTAMP ELSE NULL END, CURRENT_TIMESTAMP)
+            ON CONFLICT(email) DO UPDATE SET
+                status = excluded.status,
+                name = COALESCE(excluded.name, customers.name),
+                notes = COALESCE(?, customers.notes),
+                updated_at = CURRENT_TIMESTAMP,
+                last_activity_at = CURRENT_TIMESTAMP,
+                trial_started_at = CASE
+                    WHEN excluded.status = 'trial' AND customers.trial_started_at IS NULL THEN CURRENT_TIMESTAMP
+                    WHEN excluded.status = 'pending_verification' THEN NULL
+                    ELSE customers.trial_started_at
+                END
+            ''',
+            (customer_email, name, status, status, notes),
+        )
+        conn.commit()
+        row = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
+        if row is None:
+            raise RuntimeError('customer status update failed')
+        return row
+
+
+def list_customers(*, status: str | None = None, limit: int = 100) -> list[sqlite3.Row]:
+    with closing(connect()) as conn:
+        ensure_customer_table(conn)
+        if status:
+            return list(conn.execute('SELECT * FROM customers WHERE status = ? ORDER BY updated_at DESC LIMIT ?', (status, limit)))
+        return list(conn.execute('SELECT * FROM customers ORDER BY updated_at DESC LIMIT ?', (limit,)))
+
+
+def record_customer_document(email: str, size_bytes: int) -> None:
+    customer_email = canonical_customer_identity(email)
+    storage_mb = max(0, size_bytes) / (1024 * 1024)
+    with closing(connect()) as conn:
+        ensure_customer_table(conn)
+        conn.execute(
+            '''
+            UPDATE customers
+            SET document_count = document_count + 1,
+                storage_used_mb = storage_used_mb + ?,
+                last_activity_at = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE email = ?
+            ''',
+            (storage_mb, customer_email),
+        )
+        conn.commit()
+
+
 def add_document(record: dict) -> None:
     customer_identity = canonical_customer_identity(record.get('customer_identity') or record['customer_email'])
     with closing(connect()) as conn:
@@ -215,6 +379,7 @@ def add_document(record: dict) -> None:
             ),
         )
         conn.commit()
+    record_customer_document(customer_identity, int(record.get('size_bytes') or 0))
 
 
 def mark_missing_file(document_id: int) -> None:

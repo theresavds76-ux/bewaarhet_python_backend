@@ -11,7 +11,8 @@ from email.utils import parsedate_to_datetime
 
 from .classifier import classify_document
 from .config import settings
-from .database import add_document, connect
+from .customer_onboarding import activation_link
+from .database import add_document, connect, ensure_customer
 from .dropbox_client import upload_file
 from .mail_client import Attachment, IncomingMail, mark_as_seen, send_html
 from .ocr import ocr_space
@@ -252,7 +253,11 @@ def _is_allowed(att: Attachment) -> bool:
 
 
 def _too_large(att: Attachment) -> bool:
-    return att.size > settings.max_attachment_mb * 1024 * 1024
+    return att.size > _max_file_size_mb() * 1024 * 1024
+
+
+def _max_file_size_mb() -> float:
+    return float(getattr(settings, 'max_file_size_mb', getattr(settings, 'max_attachment_mb', 15)))
 
 
 def _is_zip(att: Attachment) -> bool:
@@ -396,6 +401,13 @@ def _validate_zip_contents(content: bytes) -> AttachmentValidation:
 
 
 def _validate_attachment(att: Attachment) -> AttachmentValidation:
+    metadata_validation = _validate_attachment_metadata(att)
+    if not metadata_validation.ok:
+        return metadata_validation
+    return _validate_attachment_content(att, metadata_validation)
+
+
+def _validate_attachment_metadata(att: Attachment) -> AttachmentValidation:
     safe_filename = _sanitize_attachment_filename(att.filename)
     extension = file_extension(safe_filename)
     size = len(att.content or b'')
@@ -406,9 +418,14 @@ def _validate_attachment(att: Attachment) -> AttachmentValidation:
         return AttachmentValidation(False, 'unsupported file type', extension or 'none', 'unknown', safe_filename)
     if size <= 0 or att.size <= 0:
         return AttachmentValidation(False, 'empty file', extension, 'unknown', safe_filename)
-    if _too_large(att) or size > settings.max_attachment_mb * 1024 * 1024:
+    if _too_large(att) or size > _max_file_size_mb() * 1024 * 1024:
         return AttachmentValidation(False, 'file too large', extension, 'unknown', safe_filename)
+    return AttachmentValidation(True, extension=extension, detected_type='unchecked', safe_filename=safe_filename)
 
+
+def _validate_attachment_content(att: Attachment, metadata_validation: AttachmentValidation) -> AttachmentValidation:
+    extension = metadata_validation.extension
+    safe_filename = metadata_validation.safe_filename
     detected_type = _detect_content_type(att.content, extension)
     if not _content_type_matches_extension(extension, detected_type):
         return AttachmentValidation(False, 'extension/content mismatch', extension, detected_type, safe_filename)
@@ -418,6 +435,211 @@ def _validate_attachment(att: Attachment) -> AttachmentValidation:
             return AttachmentValidation(False, zip_validation.reason, zip_validation.extension, zip_validation.detected_type, safe_filename)
 
     return AttachmentValidation(True, extension=extension, detected_type=detected_type, safe_filename=safe_filename)
+
+
+def _onboarding_enabled() -> bool:
+    return bool(getattr(settings, 'customer_onboarding_enabled', False))
+
+
+def _legacy_welcome_email_unused(to: str) -> None:
+    subject = getattr(settings, 'welcome_email_subject', 'Welkom bij Bewaarhet')
+    send_html(to, subject, '''
+        Hoi,<br><br>
+        Welkom bij Bewaarhet 😊<br><br>
+        Je eerste documenten zijn ontvangen. Je kunt documenten bewaren door ze naar Bewaarhet te mailen.
+        Als je later iets zoekt, mail je gewoon wat je nodig hebt, bijvoorbeeld: "zoek mijn polis" of "zoek recept pastei".<br><br>
+        Je start met een kleine trial. Daarmee kun je veilig kennismaken met Bewaarhet:
+        maximaal 10 documenten en 100 MB opslag. Tijdens de trial accepteren we PDF, JPG en PNG.<br><br>
+        Je documenten worden veilig opgeslagen en downloadlinks verlopen automatisch.<br><br>
+        Vragen of iets werkt niet zoals verwacht? Reageer gerust op deze mail.<br><br>
+        Groet,<br>
+        Bewaarhet
+    ''')
+
+
+def _send_welcome_email(to: str) -> None:
+    subject = getattr(settings, 'welcome_email_subject', 'Welkom bij Bewaarhet')
+    link = html_escape(activation_link(to))
+    body = f'''
+        Hoi,<br><br>
+        Welkom bij Bewaarhet.<br><br>
+        Bewaarhet helpt je documenten bewaren via e-mail. Je mailt een document naar Bewaarhet,
+        en daarna kan het automatisch worden herkend, netjes hernoemd en opgeslagen.
+        Later kun je het weer opvragen via zoek@bewaarhet.nl.<br><br>
+        Je start met een gratis proefomgeving. Daarmee kun je rustig testen met bijvoorbeeld
+        facturen, bonnetjes, recepten, notities, contracten en handleidingen.<br><br>
+        De proef ondersteunt voorlopig PDF, JPG, JPEG en PNG. Na activatie kunnen later meer
+        bestandstypen beschikbaar worden.<br><br>
+        Bevestig eerst je e-mailadres om de proef te starten:<br><br>
+        <a href="{link}" style="display:inline-block;padding:12px 18px;background:#1f6feb;color:#ffffff;text-decoration:none;border-radius:6px;">Start mijn gratis proef</a><br><br>
+        Of open deze link:<br>
+        <a href="{link}">{link}</a><br><br>
+        Groet,<br>
+        Bewaarhet
+    '''
+    send_html(to, subject, body)
+
+
+def _send_pending_verification_reminder(to: str) -> None:
+    link = html_escape(activation_link(to))
+    body = f'''
+        Hoi,<br><br>
+        Bevestig eerst je e-mailadres. Daarna kun je Bewaarhet testen met je documenten.<br><br>
+        <a href="{link}" style="display:inline-block;padding:12px 18px;background:#1f6feb;color:#ffffff;text-decoration:none;border-radius:6px;">Bevestig mijn e-mailadres</a><br><br>
+        Of open deze link:<br>
+        <a href="{link}">{link}</a><br><br>
+        Groet,<br>
+        Bewaarhet
+    '''
+    send_html(to, 'Bevestig je e-mailadres voor Bewaarhet', body)
+
+
+def _send_blocked_customer_reply(to: str) -> None:
+    send_html(to, 'Bewaarhet account geblokkeerd', '''
+        Hoi,<br><br>
+        Dit e-mailadres kan op dit moment geen documenten verwerken via Bewaarhet.
+        Neem contact op als je denkt dat dit niet klopt.<br><br>
+        Groet,<br>
+        Bewaarhet
+    ''')
+
+
+def _send_trial_limit_reply(to: str, reason: str) -> None:
+    send_html(to, 'Triallimiet bereikt', f'''
+        Hoi,<br><br>
+        Je document is niet verwerkt, omdat de triallimiet is bereikt: {html_escape(reason)}.<br><br>
+        Tijdens de trial kun je maximaal {getattr(settings, 'max_trial_documents', 10)} documenten en
+        {getattr(settings, 'max_trial_storage_mb', 100)} MB bewaren. Trial-bestandstypen zijn PDF, JPG en PNG.<br><br>
+        Reageer op deze mail als je Bewaarhet verder wilt gebruiken.<br><br>
+        Groet,<br>
+        Bewaarhet
+    ''')
+
+
+def _try_send_trial_limit_reply(to: str, reason: str) -> None:
+    try:
+        _send_trial_limit_reply(to, reason)
+    except Exception as exc:
+        print(f"trial limit email failed | sender={sanitize_for_log(to)} | error={sanitize_for_log(exc)}")
+
+
+def _prepare_customer_for_storage(sender: str, *, extension: str, size_bytes: int) -> bool:
+    if not _onboarding_enabled():
+        return True
+
+    sender_identity = canonical_customer_identity(sender)
+    try:
+        customer, created = ensure_customer(sender_identity)
+    except Exception as exc:
+        print(f"customer lookup failed | sender={sanitize_for_log(sender_identity)} | error={sanitize_for_log(exc)}")
+        return False
+
+    status = str(customer['status'] or '').lower()
+    if created:
+        print(f"new pending verification customer created | sender={sanitize_for_log(sender_identity)}")
+        try:
+            _send_welcome_email(sender_identity)
+        except Exception as exc:
+            print(f"welcome email failed | sender={sanitize_for_log(sender_identity)} | error={sanitize_for_log(exc)}")
+        return False
+
+    if status == 'pending_verification':
+        print(f"pending verification customer rejected before processing | sender={sanitize_for_log(sender_identity)}")
+        try:
+            _send_pending_verification_reminder(sender_identity)
+        except Exception as exc:
+            print(f"verification reminder email failed | sender={sanitize_for_log(sender_identity)} | error={sanitize_for_log(exc)}")
+        return False
+
+    if status == 'blocked':
+        print(f"blocked customer rejected | sender={sanitize_for_log(sender_identity)}")
+        try:
+            _send_blocked_customer_reply(sender_identity)
+        finally:
+            return False
+
+    rate_action = 'trial_storage_mail' if status == 'trial' else 'storage'
+    try:
+        if not apply_rate_limit_or_reply(sender_identity, rate_action):
+            print(f"rate limit exceeded before processing | sender={sanitize_for_log(sender_identity)} | action={rate_action}")
+            return False
+    except Exception as exc:
+        print(f"rate limit check failed | sender={sanitize_for_log(sender_identity)} | action={rate_action} | error={sanitize_for_log(exc)}")
+        return False
+
+    if status != 'trial':
+        return True
+
+    trial_allowed = getattr(settings, 'trial_allowed_extensions', {'.pdf', '.jpg', '.jpeg', '.png'})
+    if extension not in trial_allowed:
+        print(f"trial file type rejected | sender={sanitize_for_log(sender_identity)} | extension={sanitize_for_log(extension)}")
+        _try_send_trial_limit_reply(sender_identity, 'dit bestandstype is nog niet beschikbaar in de trial')
+        return False
+
+    max_file_size_mb = float(getattr(settings, 'max_trial_file_size_mb', getattr(settings, 'max_attachment_mb', 15)))
+    if size_bytes > max_file_size_mb * 1024 * 1024:
+        print(f"trial file too large | sender={sanitize_for_log(sender_identity)} | size={size_bytes}")
+        _try_send_trial_limit_reply(sender_identity, f'dit bestand is groter dan {max_file_size_mb:g} MB')
+        return False
+
+    try:
+        if not apply_rate_limit_or_reply(sender_identity, 'trial_document'):
+            print(f"trial document rate limit exceeded | sender={sanitize_for_log(sender_identity)}")
+            return False
+    except Exception as exc:
+        print(f"trial document rate limit check failed | sender={sanitize_for_log(sender_identity)} | error={sanitize_for_log(exc)}")
+        return False
+
+    current_count = int(customer['document_count'] or 0)
+    current_storage = float(customer['storage_used_mb'] or 0)
+    max_documents = int(getattr(settings, 'max_trial_documents', 10))
+    max_storage = float(getattr(settings, 'max_trial_storage_mb', 100))
+    next_storage = current_storage + (max(0, size_bytes) / (1024 * 1024))
+
+    if current_count >= max_documents:
+        print(f"trial document limit reached | sender={sanitize_for_log(sender_identity)} | count={current_count}")
+        _try_send_trial_limit_reply(sender_identity, 'het maximale aantal trial-documenten is bereikt')
+        return False
+    if next_storage > max_storage:
+        print(f"trial storage limit reached | sender={sanitize_for_log(sender_identity)} | storage_mb={current_storage:.3f}")
+        _try_send_trial_limit_reply(sender_identity, 'de maximale trial-opslag is bereikt')
+        return False
+    return True
+
+
+def _ensure_customer_verified_for_storage(sender: str) -> bool:
+    if not _onboarding_enabled():
+        return True
+
+    sender_identity = canonical_customer_identity(sender)
+    try:
+        customer, created = ensure_customer(sender_identity)
+    except Exception as exc:
+        print(f"customer lookup failed | sender={sanitize_for_log(sender_identity)} | error={sanitize_for_log(exc)}")
+        return False
+
+    status = str(customer['status'] or '').lower()
+    if created:
+        print(f"new pending verification customer created | sender={sanitize_for_log(sender_identity)}")
+        try:
+            _send_welcome_email(sender_identity)
+        except Exception as exc:
+            print(f"welcome email failed | sender={sanitize_for_log(sender_identity)} | error={sanitize_for_log(exc)}")
+        return False
+    if status == 'pending_verification':
+        print(f"pending verification customer rejected before processing | sender={sanitize_for_log(sender_identity)}")
+        try:
+            _send_pending_verification_reminder(sender_identity)
+        except Exception as exc:
+            print(f"verification reminder email failed | sender={sanitize_for_log(sender_identity)} | error={sanitize_for_log(exc)}")
+        return False
+    if status == 'blocked':
+        print(f"blocked customer rejected | sender={sanitize_for_log(sender_identity)}")
+        try:
+            _send_blocked_customer_reply(sender_identity)
+        finally:
+            return False
+    return True
 
 
 def _log_attachment_rejected(att: Attachment, validation: AttachmentValidation) -> None:
@@ -435,7 +657,7 @@ def _send_attachment_rejected_reply(to: str, validation: AttachmentValidation) -
         Hoi,<br><br>
         Ik kon een bijlage niet veilig opslaan: {html_escape(validation.reason)}.<br><br>
         Ondersteunde bestandstypen zijn: PDF, DOC, DOCX, ODT, XLS, XLSX, ODS, TXT, CSV, RTF, JPG, JPEG, PNG, GIF, BMP, TIFF en ZIP.<br>
-        De maximale bestandsgrootte is {settings.max_attachment_mb} MB.<br><br>
+        De maximale bestandsgrootte is {_max_file_size_mb():g} MB.<br><br>
         Groet,<br>
         Bewaarhet
     ''')
@@ -516,6 +738,13 @@ def process_document_body_mail(mail: IncomingMail) -> None:
     body_without_footer, ignored_signature_chars = strip_email_signature(mail.body_text)
     semantic_text = f'{mail.subject}\n{body_without_footer}'.strip()
 
+    if not _prepare_customer_for_storage(
+        mail.from_email,
+        extension='.pdf',
+        size_bytes=len(semantic_text.encode('utf-8', errors='ignore')),
+    ):
+        return
+
     if is_note_like_content(semantic_text, mail.subject, original_filename):
         category = 'notities'
         supplier = ''
@@ -574,6 +803,7 @@ def process_document_body_mail(mail: IncomingMail) -> None:
         'ocr_text': semantic_text,
         'year': year,
         'month': month,
+        'size_bytes': len(pdf_bytes),
     }
     _log_storage_debug(record, semantic_text)
     add_document(record)
@@ -586,10 +816,27 @@ def process_upload_mail(mail: IncomingMail) -> None:
     customer = safe_customer_folder(customer_identity)
     date_received, year, month = _received_parts(mail)
 
+    if not _ensure_customer_verified_for_storage(mail.from_email):
+        return
+
     for att in mail.attachments:
         print(f"Bijlage verwerken: {sanitize_for_log(att.filename)} ({att.size} bytes)")
 
-        validation = _validate_attachment(att)
+        validation = _validate_attachment_metadata(att)
+        if not validation.ok:
+            _log_attachment_rejected(att, validation)
+            if _handle_rejected_upload_rate_limit(mail.from_email):
+                _send_attachment_rejected_reply(mail.from_email, validation)
+            continue
+
+        if not _prepare_customer_for_storage(
+            mail.from_email,
+            extension=validation.extension,
+            size_bytes=len(att.content or b''),
+        ):
+            continue
+
+        validation = _validate_attachment_content(att, validation)
         if not validation.ok:
             _log_attachment_rejected(att, validation)
             if _handle_rejected_upload_rate_limit(mail.from_email):
@@ -670,6 +917,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
             'ocr_text': ocr_text,
             'year': year,
             'month': month,
+            'size_bytes': len(att.content or b''),
         }
         _log_storage_debug(record, ocr_text)
         add_document(record)
@@ -693,8 +941,6 @@ def process_mail(mail: IncomingMail) -> None:
 
     if _recipient_contains(mail, 'bewaren@bewaarhet.nl'):
         _log_route('store', 'ontvanger bevat bewaren@bewaarhet.nl')
-        if not apply_rate_limit_or_reply(mail.from_email, 'storage'):
-            return
         if mail.has_attachments:
             process_upload_mail(mail)
         else:
@@ -712,8 +958,6 @@ def process_mail(mail: IncomingMail) -> None:
             return
 
         _log_route('store', 'service@bewaarhet.nl zonder zoekintentie')
-        if not apply_rate_limit_or_reply(mail.from_email, 'storage'):
-            return
         if mail.has_attachments:
             process_upload_mail(mail)
         else:
@@ -722,8 +966,6 @@ def process_mail(mail: IncomingMail) -> None:
 
     if mail.has_attachments:
         _log_route('store', 'mail heeft bijlagen')
-        if not apply_rate_limit_or_reply(mail.from_email, 'storage'):
-            return
         process_upload_mail(mail)
         return
 
@@ -743,8 +985,6 @@ def process_mail(mail: IncomingMail) -> None:
 
     if is_document_email_without_attachment(mail):
         _log_route('store', 'documentachtige mail zonder bijlage')
-        if not apply_rate_limit_or_reply(mail.from_email, 'storage'):
-            return
         process_document_body_mail(mail)
         return
 

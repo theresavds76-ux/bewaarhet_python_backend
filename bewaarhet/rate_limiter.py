@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 
 from .database import connect, ensure_rate_limit_tables
+from .config import settings
 from .mail_client import send_html
 from .utils import canonical_customer_identity, sanitize_for_log
 
@@ -36,6 +37,16 @@ RATE_LIMITS = {
     'rejected_upload': RateLimitConfig(soft_limit=10, hard_limit=15, window_seconds=60 * 60),
     'zip_upload': RateLimitConfig(soft_limit=30, hard_limit=60, window_seconds=60 * 60),
     'mail_loop': RateLimitConfig(soft_limit=0, hard_limit=0, window_seconds=60 * 60),
+    'trial_storage_mail': RateLimitConfig(
+        soft_limit=max(1, int(getattr(settings, 'max_trial_mails_per_hour', 20) * 0.75)),
+        hard_limit=int(getattr(settings, 'max_trial_mails_per_hour', 20)),
+        window_seconds=60 * 60,
+    ),
+    'trial_document': RateLimitConfig(
+        soft_limit=max(1, int(getattr(settings, 'max_trial_documents_per_day', 25) * 0.75)),
+        hard_limit=int(getattr(settings, 'max_trial_documents_per_day', 25)),
+        window_seconds=24 * 60 * 60,
+    ),
 }
 
 
