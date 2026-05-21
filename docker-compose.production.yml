@@ -23,7 +23,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: bewaarhet_python_backend:latest
-    container_name: bewaarhet_worker
+    container_name: bewaarhet-worker
     restart: unless-stopped
     env_file:
       - path: ${BEWAARHET_ENV_FILE:-/root/bewaarhet.env}
@@ -37,7 +37,7 @@ services:
     labels:
       - "traefik.enable=false"
     volumes:
-      - ${BEWAARHET_DATA_MOUNT:-bewaarhet_data}:/app/data
+      - /opt/bewaarhet/data:/app/data
 
   bewaarhet_activation:
     build:
@@ -69,7 +69,7 @@ services:
       - "traefik.http.routers.bewaarhet_activation_nl.priority=100"
       - "traefik.http.services.bewaarhet_activation.loadbalancer.server.port=8080"
     volumes:
-      - ${BEWAARHET_DATA_MOUNT:-bewaarhet_data}:/app/data
+      - /opt/bewaarhet/data:/app/data
 
   bewaarhet_logs:
     profiles:
