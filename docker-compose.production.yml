@@ -11,9 +11,6 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik_webgateway"
-      - "traefik.http.routers.bewaarhet_site_vds.rule=Host(`bewaarhet.vdsintl.com`)"
-      - "traefik.http.routers.bewaarhet_site_vds.entrypoints=websecure"
-      - "traefik.http.routers.bewaarhet_site_vds.tls=true"
       - "traefik.http.routers.bewaarhet_site_nl.rule=Host(`bewaarhet.nl`) || Host(`www.bewaarhet.nl`)"
       - "traefik.http.routers.bewaarhet_site_nl.entrypoints=websecure"
       - "traefik.http.routers.bewaarhet_site_nl.tls.certresolver=myresolver"
@@ -40,11 +37,9 @@ services:
     labels:
       - "traefik.enable=false"
     volumes:
-      - bewaarhet_data:/app/data
+      - ${BEWAARHET_DATA_MOUNT:-bewaarhet_data}:/app/data
 
   bewaarhet_activation:
-    profiles:
-      - worker
     build:
       context: .
       dockerfile: Dockerfile
@@ -68,17 +63,13 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik_webgateway"
-      - "traefik.http.routers.bewaarhet_activation_vds.rule=Host(`bewaarhet.vdsintl.com`) && PathPrefix(`/activeer`)"
-      - "traefik.http.routers.bewaarhet_activation_vds.entrypoints=websecure"
-      - "traefik.http.routers.bewaarhet_activation_vds.tls=true"
-      - "traefik.http.routers.bewaarhet_activation_vds.priority=100"
       - "traefik.http.routers.bewaarhet_activation_nl.rule=(Host(`bewaarhet.nl`) || Host(`www.bewaarhet.nl`)) && PathPrefix(`/activeer`)"
       - "traefik.http.routers.bewaarhet_activation_nl.entrypoints=websecure"
       - "traefik.http.routers.bewaarhet_activation_nl.tls.certresolver=myresolver"
       - "traefik.http.routers.bewaarhet_activation_nl.priority=100"
       - "traefik.http.services.bewaarhet_activation.loadbalancer.server.port=8080"
     volumes:
-      - bewaarhet_data:/app/data
+      - ${BEWAARHET_DATA_MOUNT:-bewaarhet_data}:/app/data
 
   bewaarhet_logs:
     profiles:

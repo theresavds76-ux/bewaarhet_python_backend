@@ -7,3 +7,5 @@ data/
 *.sqlite
 *.sqlite3
 get_dropbox_refresh_token.py
+.env.production
+bewaarhet_upload.zip
