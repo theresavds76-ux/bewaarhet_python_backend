@@ -191,6 +191,38 @@ class SearchMailDetectionTests(unittest.TestCase):
         send_search_results.assert_called_once_with('user@example.com', 'wachtwoord AAA')
         self.assertIn('Route gekozen: search | Reden: service@bewaarhet.nl met zoekintentie', output.getvalue())
 
+    def test_service_stuur_mijn_factuur_becomes_search(self) -> None:
+        mail = _mail(
+            'Stuur mijn factuur van KPN',
+            '',
+            to_email='service@bewaarhet.nl',
+        )
+
+        with (
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+        ):
+            process_mail(mail)
+
+        process_document_body_mail.assert_not_called()
+        send_search_results.assert_called_once_with('user@example.com', 'factuur KPN')
+
+    def test_service_bon_ikea_2024_without_search_verb_is_stored(self) -> None:
+        mail = _mail(
+            'bon ikea 2024',
+            'Ter opslag.',
+            to_email='service@bewaarhet.nl',
+        )
+
+        with (
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+        ):
+            process_mail(mail)
+
+        send_search_results.assert_not_called()
+        process_document_body_mail.assert_called_once_with(mail)
+
     def test_service_normal_invoice_reminder_becomes_store(self) -> None:
         mail = _mail(
             'Odido betalingsherinnering',

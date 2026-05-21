@@ -297,6 +297,63 @@ class SearchReplyTests(unittest.TestCase):
         self.assertEqual(send_html.call_args.args[1], 'Document(en) gevonden')
         self.assertIn('overig_youandigoods_17-05-2026.pdf', send_html.call_args.args[2])
 
+    def test_bon_ikea_2024_matches_filename_and_metadata(self) -> None:
+        rows = [
+            _row(
+                'bon_ikea_14-03-2024.pdf',
+                '/bonnen/bon_ikea_14-03-2024.pdf',
+                1,
+                supplier='ikea',
+                purpose='bon',
+                category='bonnen',
+                ocr_preview='IKEA kassabon 2024',
+                ocr_text='IKEA kassabon 2024 totaal EUR 49,95',
+            ),
+            _row(
+                'bon_jumbo_14-03-2024.pdf',
+                '/bonnen/bon_jumbo_14-03-2024.pdf',
+                2,
+                supplier='jumbo',
+                purpose='bon',
+                category='bonnen',
+            ),
+        ]
+
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link', return_value='https://example.com/ikea') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+        ):
+            send_search_results('user@example.com', 'bon ikea 2024')
+
+        temporary_link.assert_called_once_with('/bonnen/bon_ikea_14-03-2024.pdf')
+        html = send_html.call_args.args[2]
+        self.assertIn('bon_ikea_14-03-2024.pdf', html)
+        self.assertNotIn('bon_jumbo_14-03-2024.pdf', html)
+
+    def test_search_can_match_ocr_preview_without_filename_match(self) -> None:
+        rows = [
+            _row(
+                'overig_onbekend_17-05-2026.pdf',
+                '/overig/overig_onbekend_17-05-2026.pdf',
+                1,
+                purpose='',
+                category='overig',
+                ocr_preview='Garantiebewijs wasmachine serienummer ABC123',
+                ocr_text='Garantiebewijs wasmachine serienummer ABC123 gekocht bij Coolblue',
+            ),
+        ]
+
+        with (
+            patch('bewaarhet.search_reply.search_documents', return_value=rows),
+            patch('bewaarhet.search_reply.temporary_link', return_value='https://example.com/garantie') as temporary_link,
+            patch('bewaarhet.search_reply.send_html') as send_html,
+        ):
+            send_search_results('user@example.com', 'garantiebewijs wasmachine')
+
+        temporary_link.assert_called_once_with('/overig/overig_onbekend_17-05-2026.pdf')
+        self.assertEqual(send_html.call_args.args[1], 'Document(en) gevonden')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -54,10 +54,25 @@ def _mail(att: Attachment) -> IncomingMail:
 
 def _zip_bytes(files: dict[str, bytes] | None = None) -> bytes:
     buffer = BytesIO()
+    entries = {'document.txt': b'hello'} if files is None else files
     with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
-        for name, content in (files or {'document.txt': b'hello'}).items():
+        for name, content in entries.items():
             archive.writestr(name, content)
     return buffer.getvalue()
+
+
+def _docx_bytes() -> bytes:
+    return _zip_bytes({
+        '[Content_Types].xml': b'<Types />',
+        'word/document.xml': b'<document>safe</document>',
+    })
+
+
+def _xlsx_bytes() -> bytes:
+    return _zip_bytes({
+        '[Content_Types].xml': b'<Types />',
+        'xl/workbook.xml': b'<workbook />',
+    })
 
 
 def _odf_bytes(mimetype: str) -> bytes:
@@ -70,6 +85,62 @@ def _odf_bytes(mimetype: str) -> bytes:
 
 
 class AllowedFilesTests(unittest.TestCase):
+    def test_all_safe_trial_filetypes_validate_with_representative_content(self) -> None:
+        samples = {
+            '.pdf': ('factuur.pdf', b'%PDF-1.4\nsafe'),
+            '.doc': ('brief.doc', b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1safe'),
+            '.docx': ('brief.docx', _docx_bytes()),
+            '.odt': ('brief.odt', _odf_bytes('application/vnd.oasis.opendocument.text')),
+            '.xls': ('sheet.xls', b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1safe'),
+            '.xlsx': ('sheet.xlsx', _xlsx_bytes()),
+            '.ods': ('sheet.ods', _odf_bytes('application/vnd.oasis.opendocument.spreadsheet')),
+            '.txt': ('notitie.txt', b'gewone tekst'),
+            '.csv': ('regels.csv', b'a,b\n1,2\n'),
+            '.rtf': ('note.rtf', b'{\\rtf1 safe}'),
+            '.jpg': ('foto.jpg', b'\xff\xd8\xff\xe0safe'),
+            '.jpeg': ('foto.jpeg', b'\xff\xd8\xff\xe0safe'),
+            '.png': ('foto.png', b'\x89PNG\r\n\x1a\nsafe'),
+            '.gif': ('foto.gif', b'GIF89asafe'),
+            '.bmp': ('foto.bmp', b'BMsafe'),
+            '.tiff': ('foto.tiff', b'II*\x00safe'),
+            '.zip': ('archive.zip', _zip_bytes({'document.txt': b'hello'})),
+        }
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=TRIAL_ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            for extension, (filename, content) in samples.items():
+                with self.subTest(extension=extension):
+                    validation = _validate_attachment(_attachment(filename, content=content, size=len(content)))
+                    self.assertTrue(validation.ok, validation)
+
+    def test_uppercase_extensions_are_allowed(self) -> None:
+        content = b'%PDF-1.4\nsafe'
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            validation = _validate_attachment(_attachment('FACTUUR.PDF', content=content, size=len(content)))
+
+        self.assertTrue(validation.ok)
+        self.assertEqual(validation.extension, '.pdf')
+
+    def test_filenames_with_spaces_and_safe_punctuation_are_allowed(self) -> None:
+        content = b'%PDF-1.4\nsafe'
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            validation = _validate_attachment(_attachment('Factuur mei 2026 (kopie) #1.pdf', content=content, size=len(content)))
+
+        self.assertTrue(validation.ok)
+
+    def test_double_extension_executable_is_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS | {'.exe'}, max_attachment_mb=15)):
+            validation = _validate_attachment(_attachment('factuur.pdf.exe', content=b'MZunsafe', size=8))
+
+        self.assertFalse(validation.ok)
+        self.assertEqual(validation.reason, 'unsupported file type')
+        self.assertEqual(validation.extension, '.exe')
+
+    def test_extensionless_file_is_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            validation = _validate_attachment(_attachment('factuur', content=b'%PDF-1.4\nsafe', size=14))
+
+        self.assertFalse(validation.ok)
+        self.assertEqual(validation.reason, 'unsupported file type')
+
     def test_odt_allowed(self) -> None:
         with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
             self.assertTrue(_is_allowed(_attachment('document.odt', content=_odf_bytes('application/vnd.oasis.opendocument.text'))))
@@ -210,6 +281,13 @@ class AllowedFilesTests(unittest.TestCase):
         self.assertFalse(validation.ok)
         self.assertEqual(validation.reason, 'zip contains unsupported file type')
         self.assertEqual(validation.extension, '.unknown')
+
+    def test_empty_zip_is_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            validation = _validate_attachment(_attachment('archive.zip', content=_zip_bytes({}), size=len(_zip_bytes({}))))
+
+        self.assertFalse(validation.ok)
+        self.assertEqual(validation.reason, 'zip contains no files')
 
     def test_zip_unsupported_member_uses_specific_subject(self) -> None:
         att = _attachment('archive.zip', content=_zip_bytes({'run.exe': b'MZunsafe'}))

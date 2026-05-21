@@ -80,6 +80,19 @@ BUSINESS_SEARCH_PURPOSES = {
     'kwijtscheldingsformulier',
 }
 
+GENERIC_SEARCH_TERMS = BUSINESS_SEARCH_CATEGORIES | BUSINESS_SEARCH_PURPOSES | {
+    'bon',
+    'bonnen',
+    'document',
+    'documenten',
+    'bestand',
+    'bestanden',
+    'rekening',
+    'rekeningen',
+    'belastingformulier',
+    'huurcontract',
+}
+
 QUERY_ALIASES = {
     'mn': 'mijn',
     "m'n": 'mijn',
@@ -204,6 +217,16 @@ def _score(row, query: str) -> int:
         | stored_text_matches
         | dropbox_path_matches
     )
+    base_query_terms = [
+        term for term in _normalize(query).split()
+        if len(term) > 1 and term not in WEAK_QUERY_TERMS
+    ]
+    strict_terms = {
+        term for term in base_query_terms
+        if len(term) > 1
+        and term not in GENERIC_SEARCH_TERMS
+        and not term.isdigit()
+    }
 
     score = 0
     score += len(filename_matches) * 25
@@ -249,6 +272,7 @@ def _score(row, query: str) -> int:
         score = min(score, MIN_SEARCH_RESULT_SCORE - 1)
     if credential_query_matches and not (stored_text_matches or filename_matches or purpose_title_matches or dropbox_path_matches):
         score = min(score, 20)
+    missing_focused_strict_term = len(base_query_terms) <= 4 and strict_terms and not strict_terms.issubset(matched_terms)
 
     score += _fuzzy_boost(terms, fields['filename'], 8)
     score += _fuzzy_boost(terms, fields['supplier'], 8)
@@ -257,6 +281,8 @@ def _score(row, query: str) -> int:
     score += _fuzzy_boost(terms, fields['ocr_preview'], 3)
     score += _fuzzy_boost(terms, fields['ocr_text'], 3)
     score += _fuzzy_boost(terms, fields['dropbox_path'], 3)
+    if missing_focused_strict_term:
+        score = min(score, MIN_SEARCH_RESULT_SCORE - 1)
 
     return min(100, int(score))
 

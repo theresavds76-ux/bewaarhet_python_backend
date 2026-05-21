@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from bewaarhet.classifier import classify_document
 from bewaarhet.mail_client import Attachment, IncomingMail
-from bewaarhet.processor import process_upload_mail
+from bewaarhet.processor import _resolve_filename_collision, process_upload_mail
 from bewaarhet.utils import detect_purpose, detect_supplier, generate_filename
 
 
@@ -139,6 +139,14 @@ class GeneralDocumentPurposeTests(unittest.TestCase):
         self.assertEqual(filename, 'notitie_wachtwoord_19-05-2026.pdf')
         self.assertNotIn('supersecret', filename)
         self.assertNotIn('123', filename)
+
+    def test_duplicate_generated_filename_gets_suffix_instead_of_overwriting(self) -> None:
+        existing = {'factuur_kpn_19-05-2026.pdf', 'factuur_kpn_19-05-2026_1.pdf'}
+
+        with patch('bewaarhet.processor._filename_exists', side_effect=lambda _customer, _category, filename: filename in existing):
+            filename = _resolve_filename_collision('user_at_example.com', 'facturen', 'factuur_kpn_19-05-2026.pdf')
+
+        self.assertEqual(filename, 'factuur_kpn_19-05-2026_2.pdf')
 
 
 if __name__ == '__main__':

@@ -373,6 +373,8 @@ def _validate_zip_contents(content: bytes) -> AttachmentValidation:
     try:
         with zipfile.ZipFile(BytesIO(content)) as archive:
             files = [info for info in archive.infolist() if not info.is_dir()]
+            if not files:
+                return AttachmentValidation(False, 'zip contains no files', '.zip', 'zip')
             if len(files) > MAX_ZIP_FILES:
                 return AttachmentValidation(False, 'zip has too many files', '.zip', 'zip')
 
