@@ -92,6 +92,7 @@ class NoteDetectionTests(unittest.TestCase):
                 side_effect=lambda _customer, _category, filename: filename,
             ),
             patch('bewaarhet.processor._prepare_customer_for_storage', return_value=True),
+            patch('bewaarhet.processor.send_html') as send_html,
             redirect_stdout(output),
         ):
             process_mail(mail)
@@ -115,6 +116,9 @@ class NoteDetectionTests(unittest.TestCase):
         self.assertIn('[storage-debug] ocr_text length:', output.getvalue())
         self.assertIn('[storage-debug] sanitized searchable preview:', output.getvalue())
         self.assertNotIn('AAEUUUE', output.getvalue())
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Je document is veilig opgeslagen')
+        self.assertIn('notitie_wachtwoord_aaa_17-05-2026.pdf', send_html.call_args.args[2])
 
     def test_implicit_body_note_mail_is_saved_as_notitie(self) -> None:
         mail = _mail('', 'Wachtwoord AAA: AAEUUUE')
@@ -127,6 +131,7 @@ class NoteDetectionTests(unittest.TestCase):
                 side_effect=lambda _customer, _category, filename: filename,
             ),
             patch('bewaarhet.processor._prepare_customer_for_storage', return_value=True),
+            patch('bewaarhet.processor.send_html'),
         ):
             process_mail(mail)
 
@@ -146,6 +151,7 @@ class NoteDetectionTests(unittest.TestCase):
                 side_effect=lambda _customer, _category, filename: filename,
             ),
             patch('bewaarhet.processor._prepare_customer_for_storage', return_value=True),
+            patch('bewaarhet.processor.send_html'),
         ):
             process_mail(mail)
 

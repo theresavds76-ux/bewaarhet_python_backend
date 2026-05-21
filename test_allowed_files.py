@@ -7,7 +7,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from bewaarhet.mail_client import Attachment, IncomingMail
-from bewaarhet.processor import _is_allowed, _too_large, process_upload_mail
+from bewaarhet.processor import (
+    SAFE_ALLOWED_EXTENSIONS,
+    _is_allowed,
+    _prepare_customer_for_storage,
+    _too_large,
+    _validate_attachment,
+    process_upload_mail,
+)
 
 
 ALLOWED_EXTENSIONS = {
@@ -15,6 +22,13 @@ ALLOWED_EXTENSIONS = {
     '.xls', '.xlsx', '.ods', '.txt', '.csv', '.rtf',
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff',
     '.zip', '.rar', '.7z', '.tar', '.gz',
+}
+
+TRIAL_ALLOWED_EXTENSIONS = {
+    '.pdf', '.doc', '.docx', '.odt',
+    '.xls', '.xlsx', '.ods', '.txt', '.csv', '.rtf',
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff',
+    '.zip',
 }
 
 
@@ -106,6 +120,114 @@ class AllowedFilesTests(unittest.TestCase):
         with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS | {'.mp4'}, max_attachment_mb=15)):
             self.assertFalse(_is_allowed(_attachment('video.mp4')))
 
+    def test_default_safe_extensions_match_trial_allowlist(self) -> None:
+        self.assertEqual(TRIAL_ALLOWED_EXTENSIONS, SAFE_ALLOWED_EXTENSIONS)
+
+    def test_blocked_extensions_rejected_even_if_configured(self) -> None:
+        blocked = {
+            '.rar', '.7z', '.tar', '.gz', '.exe', '.bat', '.cmd',
+            '.js', '.vbs', '.scr', '.msi', '.docm', '.xlsm', '.pptm',
+        }
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS | blocked, max_attachment_mb=15)):
+            for extension in blocked:
+                with self.subTest(extension=extension):
+                    self.assertFalse(_is_allowed(_attachment(f'blocked{extension}')))
+
+    def test_trial_allows_safe_document_and_image_extensions(self) -> None:
+        with (
+            patch('bewaarhet.processor.ensure_customer', return_value=({
+                'status': 'trial',
+                'document_count': 0,
+                'storage_used_mb': 0,
+            }, False)),
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.settings', SimpleNamespace(
+                customer_onboarding_enabled=True,
+                trial_allowed_extensions=TRIAL_ALLOWED_EXTENSIONS,
+                max_trial_file_size_mb=15,
+                max_attachment_mb=15,
+                max_trial_documents=10,
+                max_trial_storage_mb=100,
+            )),
+        ):
+            for extension in sorted(TRIAL_ALLOWED_EXTENSIONS):
+                with self.subTest(extension=extension):
+                    self.assertTrue(_prepare_customer_for_storage('user@example.com', extension=extension, size_bytes=100))
+
+        send_html.assert_not_called()
+
+    def test_trial_unsupported_filetype_uses_specific_subject(self) -> None:
+        with (
+            patch('bewaarhet.processor.ensure_customer', return_value=({
+                'status': 'trial',
+                'document_count': 0,
+                'storage_used_mb': 0,
+            }, False)),
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.settings', SimpleNamespace(
+                customer_onboarding_enabled=True,
+                trial_allowed_extensions={'.pdf'},
+                max_trial_file_size_mb=15,
+                max_attachment_mb=15,
+                max_trial_documents=10,
+                max_trial_storage_mb=100,
+            )),
+        ):
+            self.assertFalse(_prepare_customer_for_storage('user@example.com', extension='.docx', size_bytes=100))
+
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Bestandstype niet ondersteund')
+        self.assertIn('PDF, DOC, DOCX', send_html.call_args.args[2])
+
+    def test_zip_with_safe_contents_allowed(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            validation = _validate_attachment(_attachment('archive.zip', content=_zip_bytes({
+                'document.txt': b'hello',
+                'folder/note.csv': b'a,b\n1,2\n',
+            })))
+
+        self.assertTrue(validation.ok)
+
+    def test_zip_with_forbidden_contents_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            validation = _validate_attachment(_attachment('archive.zip', content=_zip_bytes({
+                'document.txt': b'hello',
+                'run.exe': b'MZunsafe',
+            })))
+
+        self.assertFalse(validation.ok)
+        self.assertEqual(validation.reason, 'zip contains unsupported file type')
+        self.assertEqual(validation.extension, '.exe')
+
+    def test_zip_with_unknown_contents_rejected(self) -> None:
+        with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)):
+            validation = _validate_attachment(_attachment('archive.zip', content=_zip_bytes({
+                'document.unknown': b'hello',
+            })))
+
+        self.assertFalse(validation.ok)
+        self.assertEqual(validation.reason, 'zip contains unsupported file type')
+        self.assertEqual(validation.extension, '.unknown')
+
+    def test_zip_unsupported_member_uses_specific_subject(self) -> None:
+        att = _attachment('archive.zip', content=_zip_bytes({'run.exe': b'MZunsafe'}))
+        mail = _mail(att)
+
+        with (
+            patch('bewaarhet.processor._ensure_customer_verified_for_storage', return_value=True),
+            patch('bewaarhet.processor._prepare_customer_for_storage', return_value=True),
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=ALLOWED_EXTENSIONS, max_attachment_mb=15)),
+        ):
+            process_upload_mail(mail)
+
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Bestandstype niet ondersteund')
+        self.assertIn('ZIP-bestanden', send_html.call_args.args[2])
+
     def test_generic_zip_gets_semantic_filename_from_context(self) -> None:
         att = _attachment('1234.zip', content=_zip_bytes())
         mail = _mail(att)
@@ -126,7 +248,9 @@ class AllowedFilesTests(unittest.TestCase):
             process_upload_mail(mail)
 
         ocr_space.assert_not_called()
-        send_html.assert_not_called()
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Je document is veilig opgeslagen')
+        self.assertIn('1234.zip', send_html.call_args.args[2])
         upload_file.assert_called_once()
         add_document.assert_called_once()
         record = add_document.call_args.args[0]

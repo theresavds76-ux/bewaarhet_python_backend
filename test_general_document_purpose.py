@@ -81,7 +81,9 @@ class GeneralDocumentPurposeTests(unittest.TestCase):
         ):
             process_upload_mail(_mail(att))
 
-        send_html.assert_not_called()
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Je document is veilig opgeslagen')
+        self.assertIn('pastei.odt', send_html.call_args.args[2])
         record = add_document.call_args.args[0]
         self.assertEqual(record['category'], 'overig')
         self.assertEqual(record['purpose'], 'recept')

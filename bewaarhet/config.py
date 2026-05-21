@@ -32,6 +32,8 @@ DEFAULT_ALLOWED_EXTENSIONS = (
     '.zip'
 )
 
+DEFAULT_TRIAL_ALLOWED_EXTENSIONS = DEFAULT_ALLOWED_EXTENSIONS
+
 
 def _path_from_env(name: str, default: Path | str) -> Path:
     return Path(os.getenv(name, str(default))).expanduser().resolve()
@@ -98,7 +100,7 @@ class Settings:
         object.__setattr__(
             self,
             'trial_allowed_extensions',
-            _csv(os.getenv('TRIAL_ALLOWED_EXTENSIONS', '.pdf,.jpg,.jpeg,.png')),
+            _csv(os.getenv('TRIAL_ALLOWED_EXTENSIONS', DEFAULT_TRIAL_ALLOWED_EXTENSIONS)),
         )
 
     def ensure_directories(self) -> None:

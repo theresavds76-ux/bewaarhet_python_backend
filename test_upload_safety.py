@@ -46,13 +46,17 @@ def _attachment(filename: str, content: bytes, *, size: int | None = None) -> At
 
 
 def _mail(att: Attachment) -> IncomingMail:
+    return _mail_with_attachments([att])
+
+
+def _mail_with_attachments(attachments: list[Attachment]) -> IncomingMail:
     return IncomingMail(
         uid='1',
         from_email='user@example.com',
         subject='Factuur test',
         body_text='Bijgevoegd.',
         date_raw='Sun, 17 May 2026 10:00:00 +0200',
-        attachments=[att],
+        attachments=attachments,
     )
 
 
@@ -98,7 +102,9 @@ class UploadSafetyTests(unittest.TestCase):
         ocr_space.assert_called_once()
         upload_file.assert_called_once()
         add_document.assert_called_once()
-        send_html.assert_not_called()
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Je document is veilig opgeslagen')
+        self.assertIn('factuur.pdf', send_html.call_args.args[2])
 
     def test_valid_odt_accepted(self) -> None:
         att = _attachment('document.odt', _odf_bytes('application/vnd.oasis.opendocument.text'))
@@ -117,7 +123,9 @@ class UploadSafetyTests(unittest.TestCase):
         ocr_space.assert_called_once()
         upload_file.assert_called_once()
         add_document.assert_called_once()
-        send_html.assert_not_called()
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Je document is veilig opgeslagen')
+        self.assertIn('document.odt', send_html.call_args.args[2])
 
     def test_valid_ods_accepted(self) -> None:
         att = _attachment('sheet.ods', _odf_bytes('application/vnd.oasis.opendocument.spreadsheet'))
@@ -136,7 +144,9 @@ class UploadSafetyTests(unittest.TestCase):
         ocr_space.assert_called_once()
         upload_file.assert_called_once()
         add_document.assert_called_once()
-        send_html.assert_not_called()
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Je document is veilig opgeslagen')
+        self.assertIn('sheet.ods', send_html.call_args.args[2])
 
     def test_valid_rtf_accepted(self) -> None:
         att = _attachment('note.rtf', b'{\\rtf1 safe text}')
@@ -155,7 +165,59 @@ class UploadSafetyTests(unittest.TestCase):
         ocr_space.assert_called_once()
         upload_file.assert_called_once()
         add_document.assert_called_once()
-        send_html.assert_not_called()
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Je document is veilig opgeslagen')
+        self.assertIn('note.rtf', send_html.call_args.args[2])
+
+    def test_multiple_successful_attachments_get_one_summary_mail(self) -> None:
+        attachments = [
+            _attachment('factuur.pdf', b'%PDF-1.4\n% safe pdf'),
+            _attachment('note.rtf', b'{\\rtf1 safe text}'),
+        ]
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.ocr_space', return_value='Factuur test') as ocr_space,
+            patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.add_document') as add_document,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail_with_attachments(attachments))
+
+        self.assertEqual(ocr_space.call_count, 2)
+        self.assertEqual(upload_file.call_count, 2)
+        self.assertEqual(add_document.call_count, 2)
+        send_html.assert_called_once()
+        self.assertEqual(send_html.call_args.args[1], 'Je documenten zijn veilig opgeslagen')
+        self.assertIn('factuur.pdf', send_html.call_args.args[2])
+        self.assertIn('note.rtf', send_html.call_args.args[2])
+
+    def test_partial_success_lists_only_successful_attachments(self) -> None:
+        attachments = [
+            _attachment('factuur.pdf', b'%PDF-1.4\n% safe pdf'),
+            _attachment('setup.exe', b'MZ executable'),
+        ]
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.ocr_space', return_value='Factuur test'),
+            patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.add_document') as add_document,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail_with_attachments(attachments))
+
+        upload_file.assert_called_once()
+        add_document.assert_called_once()
+        subjects = [call.args[1] for call in send_html.call_args_list]
+        self.assertEqual(subjects, ['Bestandstype niet ondersteund', 'Je document is veilig opgeslagen'])
+        success_body = send_html.call_args_list[-1].args[2]
+        self.assertIn('factuur.pdf', success_body)
+        self.assertNotIn('setup.exe', success_body)
 
     def test_exe_rejected(self) -> None:
         att = _attachment('setup.exe', b'MZ executable')

@@ -57,6 +57,10 @@ SAFE_ALLOWED_EXTENSIONS = {
 }
 
 BLOCKED_EXTENSIONS = {
+    '.rar',
+    '.7z',
+    '.tar',
+    '.gz',
     '.exe',
     '.js',
     '.vbs',
@@ -69,7 +73,10 @@ BLOCKED_EXTENSIONS = {
     '.php',
     '.docm',
     '.xlsm',
+    '.pptm',
 }
+
+SUPPORTED_FILE_TYPES_TEXT = 'PDF, DOC, DOCX, ODT, XLS, XLSX, ODS, TXT, CSV, RTF, JPG, JPEG, PNG, GIF, BMP, TIFF en ZIP'
 
 MAX_FILENAME_CHARS = 180
 MAX_ZIP_FILES = 20
@@ -468,8 +475,7 @@ def _send_welcome_email(to: str) -> None:
         Later kun je het weer opvragen via zoek@bewaarhet.nl.<br><br>
         Je start met een gratis proefomgeving. Daarmee kun je rustig testen met bijvoorbeeld
         facturen, bonnetjes, recepten, notities, contracten en handleidingen.<br><br>
-        De proef ondersteunt voorlopig PDF, JPG, JPEG en PNG. Na activatie kunnen later meer
-        bestandstypen beschikbaar worden.<br><br>
+        De proef ondersteunt deze bestandstypen: {SUPPORTED_FILE_TYPES_TEXT}.<br><br>
         Bevestig eerst je e-mailadres om de proef te starten:<br><br>
         <a href="{link}" style="display:inline-block;padding:12px 18px;background:#1f6feb;color:#ffffff;text-decoration:none;border-radius:6px;">Start mijn gratis proef</a><br><br>
         Of open deze link:<br>
@@ -509,8 +515,20 @@ def _send_trial_limit_reply(to: str, reason: str) -> None:
         Hoi,<br><br>
         Je document is niet verwerkt, omdat de triallimiet is bereikt: {html_escape(reason)}.<br><br>
         Tijdens de trial kun je maximaal {getattr(settings, 'max_trial_documents', 10)} documenten en
-        {getattr(settings, 'max_trial_storage_mb', 100)} MB bewaren. Trial-bestandstypen zijn PDF, JPG en PNG.<br><br>
+        {getattr(settings, 'max_trial_storage_mb', 100)} MB bewaren. Bestandstypen die kunnen:
+        {SUPPORTED_FILE_TYPES_TEXT}.<br><br>
         Reageer op deze mail als je Bewaarhet verder wilt gebruiken.<br><br>
+        Groet,<br>
+        Bewaarhet
+    ''')
+
+
+def _send_unsupported_filetype_reply(to: str, reason: str) -> None:
+    send_html(to, 'Bestandstype niet ondersteund', f'''
+        Hoi,<br><br>
+        Je document is niet verwerkt: {html_escape(reason)}.<br><br>
+        Bestandstypen die kunnen: {SUPPORTED_FILE_TYPES_TEXT}.<br>
+        ZIP-bestanden kunnen alleen als alle bestanden in de ZIP ook een ondersteund bestandstype hebben.<br><br>
         Groet,<br>
         Bewaarhet
     ''')
@@ -521,6 +539,13 @@ def _try_send_trial_limit_reply(to: str, reason: str) -> None:
         _send_trial_limit_reply(to, reason)
     except Exception as exc:
         print(f"trial limit email failed | sender={sanitize_for_log(to)} | error={sanitize_for_log(exc)}")
+
+
+def _try_send_unsupported_filetype_reply(to: str, reason: str) -> None:
+    try:
+        _send_unsupported_filetype_reply(to, reason)
+    except Exception as exc:
+        print(f"unsupported filetype email failed | sender={sanitize_for_log(to)} | error={sanitize_for_log(exc)}")
 
 
 def _prepare_customer_for_storage(sender: str, *, extension: str, size_bytes: int) -> bool:
@@ -570,10 +595,10 @@ def _prepare_customer_for_storage(sender: str, *, extension: str, size_bytes: in
     if status != 'trial':
         return True
 
-    trial_allowed = getattr(settings, 'trial_allowed_extensions', {'.pdf', '.jpg', '.jpeg', '.png'})
+    trial_allowed = getattr(settings, 'trial_allowed_extensions', SAFE_ALLOWED_EXTENSIONS)
     if extension not in trial_allowed:
         print(f"trial file type rejected | sender={sanitize_for_log(sender_identity)} | extension={sanitize_for_log(extension)}")
-        _try_send_trial_limit_reply(sender_identity, 'dit bestandstype is nog niet beschikbaar in de trial')
+        _try_send_unsupported_filetype_reply(sender_identity, 'dit bestandstype is niet ondersteund in de trial')
         return False
 
     max_file_size_mb = float(getattr(settings, 'max_trial_file_size_mb', getattr(settings, 'max_attachment_mb', 15)))
@@ -656,11 +681,58 @@ def _send_attachment_rejected_reply(to: str, validation: AttachmentValidation) -
     send_html(to, 'Bestand niet opgeslagen', f'''
         Hoi,<br><br>
         Ik kon een bijlage niet veilig opslaan: {html_escape(validation.reason)}.<br><br>
-        Ondersteunde bestandstypen zijn: PDF, DOC, DOCX, ODT, XLS, XLSX, ODS, TXT, CSV, RTF, JPG, JPEG, PNG, GIF, BMP, TIFF en ZIP.<br>
+        Ondersteunde bestandstypen zijn: {SUPPORTED_FILE_TYPES_TEXT}.<br>
         De maximale bestandsgrootte is {_max_file_size_mb():g} MB.<br><br>
         Groet,<br>
         Bewaarhet
     ''')
+
+
+def _is_unsupported_filetype_rejection(validation: AttachmentValidation) -> bool:
+    return validation.reason in {
+        'unsupported file type',
+        'zip contains unsupported file type',
+        'zip contains nested archive',
+    }
+
+
+def _send_rejected_upload_reply(to: str, validation: AttachmentValidation) -> None:
+    if _is_unsupported_filetype_rejection(validation):
+        _send_unsupported_filetype_reply(to, validation.reason)
+        return
+    _send_attachment_rejected_reply(to, validation)
+
+
+def _send_storage_success_reply(to: str, filenames: list[str]) -> None:
+    stored = [filename for filename in filenames if filename]
+    if not stored:
+        return
+
+    multiple = len(stored) > 1
+    subject = 'Je documenten zijn veilig opgeslagen' if multiple else 'Je document is veilig opgeslagen'
+    intro = 'Je documenten zijn veilig opgeslagen in Bewaarhet.' if multiple else 'Je document is veilig opgeslagen in Bewaarhet.'
+    later = (
+        'Als je ze later nodig hebt, kun je ons gewoon mailen met wat je zoekt.'
+        if multiple
+        else 'Als je het document later nodig hebt, kun je ons gewoon mailen met wat je zoekt.'
+    )
+    items = ''.join(f'<li>{html_escape(filename)}</li>' for filename in stored)
+    send_html(to, subject, f'''
+        Hoi,<br><br>
+        {intro}<br><br>
+        Opgeslagen:<br>
+        <ul>{items}</ul>
+        Je hoeft verder niets te doen. {later}<br><br>
+        Groet,<br>
+        Bewaarhet
+    ''')
+
+
+def _try_send_storage_success_reply(to: str, filenames: list[str]) -> None:
+    try:
+        _send_storage_success_reply(to, filenames)
+    except Exception as exc:
+        print(f"storage success email failed | sender={sanitize_for_log(to)} | error={sanitize_for_log(exc)}")
 
 
 def _handle_rejected_upload_rate_limit(sender: str) -> bool:
@@ -809,12 +881,14 @@ def process_document_body_mail(mail: IncomingMail) -> None:
     add_document(record)
 
     print("Opgeslagen in SQLite.")
+    _try_send_storage_success_reply(mail.from_email, [new_filename])
 
 
 def process_upload_mail(mail: IncomingMail) -> None:
     customer_identity = canonical_customer_identity(mail.from_email)
     customer = safe_customer_folder(customer_identity)
     date_received, year, month = _received_parts(mail)
+    stored_filenames: list[str] = []
 
     if not _ensure_customer_verified_for_storage(mail.from_email):
         return
@@ -826,7 +900,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
         if not validation.ok:
             _log_attachment_rejected(att, validation)
             if _handle_rejected_upload_rate_limit(mail.from_email):
-                _send_attachment_rejected_reply(mail.from_email, validation)
+                _send_rejected_upload_reply(mail.from_email, validation)
             continue
 
         if not _prepare_customer_for_storage(
@@ -840,7 +914,7 @@ def process_upload_mail(mail: IncomingMail) -> None:
         if not validation.ok:
             _log_attachment_rejected(att, validation)
             if _handle_rejected_upload_rate_limit(mail.from_email):
-                _send_attachment_rejected_reply(mail.from_email, validation)
+                _send_rejected_upload_reply(mail.from_email, validation)
             continue
 
         original_filename = validation.safe_filename
@@ -923,6 +997,9 @@ def process_upload_mail(mail: IncomingMail) -> None:
         add_document(record)
 
         print("Opgeslagen in SQLite.")
+        stored_filenames.append(original_filename)
+
+    _try_send_storage_success_reply(mail.from_email, stored_filenames)
 
 
 def process_mail(mail: IncomingMail) -> None:

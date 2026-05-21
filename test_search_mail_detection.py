@@ -142,11 +142,13 @@ class SearchMailDetectionTests(unittest.TestCase):
         with (
             patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
             patch('bewaarhet.processor.send_search_results') as send_search_results,
+            patch('bewaarhet.processor.send_html') as send_html,
         ):
             process_mail(mail)
 
         process_document_body_mail.assert_not_called()
         send_search_results.assert_called_once_with('user@example.com', 'factuur kpn\napril 2026')
+        send_html.assert_not_called()
 
     def test_mail_to_zoek_address_always_searches_even_with_invoice_content(self) -> None:
         mail = _mail(
