@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bewaarhet - Activatielink verlopen</title>
+  <style>
+    :root { --bg: #fbf7ef; --card: #fffdf8; --ink: #1d2825; --muted: #64716c; --green: #2f7a5f; --line: #e6ded1; --amber: #d99a3d; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 32px 18px; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: linear-gradient(180deg, #fffaf1, var(--bg)); color: var(--ink); line-height: 1.55; }
+    main { width: min(680px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: clamp(28px, 6vw, 48px); box-shadow: 0 20px 60px rgba(29, 40, 37, 0.12); }
+    .mark { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: #fff1d7; color: var(--amber); font-size: 30px; margin-bottom: 22px; }
+    h1 { margin: 0 0 12px; font-size: clamp(30px, 7vw, 46px); line-height: 1.08; letter-spacing: 0; }
+    p { margin: 0 0 18px; color: var(--muted); font-size: 17px; }
+    a { color: var(--green); font-weight: 700; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+    .button, .secondary { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 11px 16px; border-radius: 8px; text-decoration: none; }
+    .button { background: var(--green); color: white; }
+    .secondary { border: 1px solid var(--line); color: var(--ink); background: white; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark">!</div>
+    <h1>Deze activatielink is ongeldig of verlopen.</h1>
+    <p>Stuur je document opnieuw naar Bewaarhet. Dan ontvang je vanzelf een nieuwe bevestigingslink.</p>
+    <div class="actions">
+      <a class="button" href="{{PUBLIC_SITE_URL}}">Terug naar Bewaarhet</a>
+      {{FAQ_LINK}}
+    </div>
+  </main>
+</body>
+</html>

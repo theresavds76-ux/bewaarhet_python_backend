@@ -88,6 +88,6 @@ def activation_link(email: str) -> str:
 
 def activate_customer_from_token(token: str):
     email = verify_activation_token(token)
-    from .database import update_customer_status
+    from .database import activate_pending_customer
 
-    return update_customer_status(email, 'trial')
+    return activate_pending_customer(email)

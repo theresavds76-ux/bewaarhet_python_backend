@@ -328,6 +328,31 @@ def update_customer_status(email: str, status: str, *, name: str | None = None, 
         return row
 
 
+def activate_pending_customer(email: str) -> sqlite3.Row:
+    customer_email = canonical_customer_identity(email)
+    with closing(connect()) as conn:
+        ensure_customer_table(conn)
+        row = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
+        if row is None or row['status'] != 'pending_verification':
+            raise ValueError('activation token is invalid or already used')
+        conn.execute(
+            '''
+            UPDATE customers
+            SET status = 'trial',
+                trial_started_at = COALESCE(trial_started_at, CURRENT_TIMESTAMP),
+                updated_at = CURRENT_TIMESTAMP,
+                last_activity_at = CURRENT_TIMESTAMP
+            WHERE email = ? AND status = 'pending_verification'
+            ''',
+            (customer_email,),
+        )
+        conn.commit()
+        activated = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
+        if activated is None or activated['status'] != 'trial':
+            raise RuntimeError('customer activation failed')
+        return activated
+
+
 def list_customers(*, status: str | None = None, limit: int = 100) -> list[sqlite3.Row]:
     with closing(connect()) as conn:
         ensure_customer_table(conn)
