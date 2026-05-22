@@ -100,7 +100,7 @@ nav {
 }
 
 .brand-logo {
-  width: 232px;
+  width: 401px;
   height: auto;
   display: block;
   object-fit: contain;
@@ -899,7 +899,7 @@ footer a {
   }
 
   .brand {
-    width: 208px;
+    width: min(359px, calc(100vw - 164px));
   }
 
   .brand-logo {
@@ -1042,10 +1042,10 @@ footer a {
   }
 
   .home-page .brand-hotspot {
-    left: 5.1%;
-    top: 3.8%;
-    width: 19.2%;
-    height: 11.1%;
+    left: 3.2%;
+    top: 0.7%;
+    width: 33.2%;
+    height: 19.2%;
     display: grid;
     place-items: center;
   }
