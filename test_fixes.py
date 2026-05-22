@@ -16,6 +16,10 @@ class TestMail:
     def has_attachments(self):
         return False
 
+
+TestMail.__test__ = False
+
+
 def test_case(name, ocr_text, filename, subject, sender_email='test@test.com', date_received='2025-08-13'):
     """Test a single case and print results."""
     print(f"\n{'='*80}")
@@ -42,10 +46,13 @@ def test_case(name, ocr_text, filename, subject, sender_email='test@test.com', d
     return category, supplier, purpose, new_filename
 
 
+test_case.__test__ = False
+
+
 # Test Case 1: B Nails (should be b_nails, not ing)
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 1: B Nails Invoice")
-print("█"*80)
+print("="*80)
 
 ocr_1 = """
 Invoice Details
@@ -70,9 +77,9 @@ assert 'b_nails' in fn1, f"Filename should contain 'b_nails', got {fn1}"
 
 
 # Test Case 2: WSD (should be wsd, not ing)
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 2: WSD Invoice")
-print("█"*80)
+print("="*80)
 
 ocr_2 = """
 Invoice
@@ -98,9 +105,9 @@ assert sup2 == 'wsd', f"Supplier should be wsd, got {sup2}"
 
 
 # Test Case 3: Belastingdienst Betalingsregeling (should be belasting, not facturen)
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 3: Belastingdienst Betalingsregeling")
-print("█"*80)
+print("="*80)
 
 ocr_3 = """
 BELASTINGDIENST
@@ -129,9 +136,9 @@ assert pur3 == 'betalingsregeling', f"Purpose should be betalingsregeling, got {
 
 
 # Test Case 4: Huur Oktober (should be woningbouw, not huur_oktober)
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4: Huur Oktober")
-print("█"*80)
+print("="*80)
 
 ocr_4 = """
 Huurnota Oktober 2025
@@ -161,9 +168,9 @@ assert pur4 == 'huur', f"Purpose should stay huur for huurnota documents, got {p
 
 
 # Test Case 4b: Cazas Wonen huurnota with normal payment instruction
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4b: Cazas Wonen Huurnota")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4b = """
 Cazas
@@ -195,9 +202,9 @@ assert fn4b == 'factuur_cazas_wonen_huur_01-11-2025.jpg', f"Unexpected filename:
 
 
 # Test Case 4c: Generic organization-name extraction
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4c: Generic Supplier Extraction")
-print("â–ˆ"*80)
+print("="*80)
 
 green_supplier = detect_supplier("Greenchoice\nEnergienota\nTermijnbedrag energie", "Greenchoice energienota", "energienota.pdf", "noreply@greenchoice.nl")
 salon_supplier = detect_supplier("Kapsalon Bella\nFactuur\nKnippen en stylen", "Factuur kapsalon", "factuur.pdf", "info@kapsalonbella.nl")
@@ -212,9 +219,9 @@ assert garage_supplier == 'garage_jansen', f"Supplier should be garage_jansen, g
 
 
 # Test Case 4d: Dienst Toeslagen betalingsregeling should not become aanmaning
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4d: Dienst Toeslagen Betalingsregeling")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4d = """
 Dienst Toeslagen
@@ -249,9 +256,9 @@ assert fn4d in {
 
 
 # Test Case 4e: Belastingdienst betaalinformatie / betalingsherinnering
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4e: Belastingdienst Betalingsherinnering")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4e = """
 Belastingdienst
@@ -282,9 +289,9 @@ assert fn4e == 'belasting_belastingdienst_betalingsherinnering_16-05-2026.jpeg',
 
 
 # Test Case 4e2: Belastingdienst payment photo with non-semantic original filename
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4e2: Belastingdienst Testje Filename")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4e2 = """
 Belastingdienst
@@ -322,9 +329,9 @@ assert not fn4e2.startswith(('factuur_onbekend', 'overig_testje')), f"Tax filena
 
 
 # Test Case 4f: Certificate of Compliance with random filename
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4f: Certificate of Compliance")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4f = """
 Certificate of Compliance
@@ -356,9 +363,9 @@ assert '7eeba915' not in fn4f, f"Filename should not use random stem, got {fn4f}
 
 
 # Test Case 4g: Plain photo without document OCR keeps IMG-style name
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4g: Plain Photo")
-print("â–ˆ"*80)
+print("="*80)
 
 cat4g, sup4g, pur4g, fn4g = test_case(
     "Plain Photo",
@@ -376,9 +383,9 @@ assert fn4g == 'overig_img_6652_15-05-2026.jpeg', f"Plain photo filename should 
 
 
 # Test Case 4h: PostNL shipping label is not an invoice
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4h: PostNL Verzendlabel")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4h = """
 PostNL
@@ -408,9 +415,9 @@ assert fn4h == 'verzendlabel_postnl_15-05-2026.jpeg', f"Unexpected filename: {fn
 
 
 # Test Case 4i: Outgoing invoice with clear customer WSD
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4i: Verkoopfactuur Klant WSD")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4i = """
 You and I
@@ -436,9 +443,9 @@ assert fn4i == 'factuur_wsd_20-01-2026.pdf', f"Filename should use WSD customer,
 
 
 # Test Case 4j: Outgoing invoice with clear customer B Nails & Spa
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4j: Verkoopfactuur Klant B Nails & Spa")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4j = """
 You and I
@@ -464,9 +471,9 @@ assert fn4j == 'factuur_b_nails_13-08-2025.pdf', f"Filename should use B Nails c
 
 
 # Test Case 4k: Semantic offerte filename from IMG file
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4k: Semantic Offerte Filename")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4k = """
 Garage Jansen
@@ -491,9 +498,9 @@ assert fn4k == 'offerte_garage_jansen_17-05-2026.jpg', f"Unexpected filename: {f
 
 
 # Test Case 4l: Semantic polis filename from image file
-print("\n\n" + "â–ˆ"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 4l: Semantic Polis Filename")
-print("â–ˆ"*80)
+print("="*80)
 
 ocr_4l = """
 ANWB Verzekering
@@ -518,9 +525,9 @@ assert fn4l == 'polis_anwb_verzekering_17-05-2026.jpeg', f"Unexpected filename: 
 
 
 # Test Case 5: ING Bank Statement (should be ing, not payment context)
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 5: ING Bank Statement")
-print("█"*80)
+print("="*80)
 
 ocr_5 = """
 ING Rekeningafschrift
@@ -546,9 +553,9 @@ assert sup5 == 'ing', f"Supplier should be ing for true bank document, got {sup5
 
 
 # Test Case 6: Payment instruction with ING (should skip ING as supplier)
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 6: Payment Instruction with ING")
-print("█"*80)
+print("="*80)
 
 ocr_6 = """
 Betaalopdracht
@@ -572,9 +579,9 @@ print(f"ACTUAL: category={cat6}, supplier={sup6}, purpose={pur6}")
 assert sup6 != 'ing', f"Supplier should not be ing for payment-only context, got {sup6}"
 
 
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 7: OCR-first Supplier Detection")
-print("█"*80)
+print("="*80)
 
 ocr_7a = """
 Vitens
@@ -661,9 +668,9 @@ print(f"ACTUAL: supplier={sup7d}, filename={fn7d}")
 assert sup7d == 'gemeentebelastingen_amstelland', f"Supplier should be gemeentebelastingen_amstelland, got {sup7d}"
 assert 'gemeentebelastingen_amstelland' in fn7d, f"Filename should contain gemeentebelastingen_amstelland, got {fn7d}"
 
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 8: Runtime document understanding")
-print("█"*80)
+print("="*80)
 
 ocr_8a = """
 Advies van het Juridisch Loket
@@ -750,7 +757,7 @@ assert sup8d not in {'fwd', 'kws', 'rk', 'b000198504', 'fwd-_kws-rk-_b000198504'
 assert pur8d == 'kwijtscheldingsformulier', f"Purpose should be kwijtscheldingsformulier, got {pur8d}"
 assert fn8d == 'belasting_kwijtscheldingsformulier_17-05-2026.pdf', f"Unexpected filename: {fn8d}"
 
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 ocr_8e = ""
 
 cat8e, sup8e, pur8e, fn8e = test_case(
@@ -768,9 +775,9 @@ assert sup8e == 'onbekend', f"Administrative metadata should not become supplier
 assert fn8e == 'belasting_kwijtscheldingsformulier_17-05-2026.pdf', f"Unexpected filename: {fn8e}"
 
 
-print("\n\n" + "█"*80)
+print("\n\n" + "="*80)
 print("TEST CASE 9: Document emails without attachments")
-print("█"*80)
+print("="*80)
 
 apple_subject = "Your Apple invoice"
 apple_body = """
@@ -826,5 +833,5 @@ assert is_document_email_without_attachment(broad_search_like_mail), "Broad sear
 plain_mail = TestMail('Afspraak morgen', 'Hoi, zullen we morgen om 10:00 even bellen?')
 assert not is_document_email_without_attachment(plain_mail), "Plain non-document mail should not be treated as document email"
 
-print("✓ ALL TESTS PASSED!")
-print("█"*80)
+print("ALL TESTS PASSED!")
+print("="*80)
