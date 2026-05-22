@@ -100,11 +100,10 @@ nav {
 }
 
 .brand-logo {
-  width: 150px;
+  width: 232px;
   height: auto;
   display: block;
   object-fit: contain;
-  mix-blend-mode: screen;
   opacity: 0.9;
   filter: drop-shadow(0 0 5px rgba(96, 204, 255, 0.22));
 }
@@ -900,7 +899,7 @@ footer a {
   }
 
   .brand {
-    width: 136px;
+    width: 208px;
   }
 
   .brand-logo {
@@ -1045,8 +1044,8 @@ footer a {
   .home-page .brand-hotspot {
     left: 5.1%;
     top: 3.8%;
-    width: 12.9%;
-    height: 7.7%;
+    width: 19.2%;
+    height: 11.1%;
     display: grid;
     place-items: center;
   }
@@ -1057,7 +1056,6 @@ footer a {
     display: block;
     object-fit: contain;
     opacity: 0.72;
-    mix-blend-mode: screen;
     filter: drop-shadow(0 0 7px rgba(96, 204, 255, 0.28));
   }
 
