@@ -106,7 +106,7 @@ nav {
   height: auto;
   display: block;
   object-fit: contain;
-  transform: translateX(-44px);
+  transform: translateX(-34px);
   filter: drop-shadow(0 0 10px rgba(94, 213, 255, 0.28));
 }
 
