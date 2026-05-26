@@ -21,6 +21,7 @@ ALLOWED_EXTENSIONS = {
     '.pdf', '.doc', '.docx', '.odt',
     '.xls', '.xlsx', '.ods', '.txt', '.csv', '.rtf',
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff',
+    '.heic', '.heif',
     '.zip', '.rar', '.7z', '.tar', '.gz',
 }
 
@@ -28,6 +29,7 @@ TRIAL_ALLOWED_EXTENSIONS = {
     '.pdf', '.doc', '.docx', '.odt',
     '.xls', '.xlsx', '.ods', '.txt', '.csv', '.rtf',
     '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff',
+    '.heic', '.heif',
     '.zip',
 }
 
@@ -84,6 +86,10 @@ def _odf_bytes(mimetype: str) -> bytes:
     return buffer.getvalue()
 
 
+def _heif_bytes(brand: bytes = b'heic') -> bytes:
+    return b'\x00\x00\x00\x18ftyp' + brand + b'\x00\x00\x00\x00' + brand + b'\x00\x00\x00\x00'
+
+
 class AllowedFilesTests(unittest.TestCase):
     def test_all_safe_trial_filetypes_validate_with_representative_content(self) -> None:
         samples = {
@@ -103,6 +109,8 @@ class AllowedFilesTests(unittest.TestCase):
             '.gif': ('foto.gif', b'GIF89asafe'),
             '.bmp': ('foto.bmp', b'BMsafe'),
             '.tiff': ('foto.tiff', b'II*\x00safe'),
+            '.heic': ('foto.heic', _heif_bytes(b'heic')),
+            '.heif': ('foto.heif', _heif_bytes(b'heif')),
             '.zip': ('archive.zip', _zip_bytes({'document.txt': b'hello'})),
         }
         with patch('bewaarhet.processor.settings', SimpleNamespace(allowed_extensions=TRIAL_ALLOWED_EXTENSIONS, max_attachment_mb=15)):

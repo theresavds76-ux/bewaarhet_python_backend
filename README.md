@@ -98,9 +98,12 @@ De huidige veilige allowlist is:
 - `.gif`
 - `.bmp`
 - `.tiff`
+- `.heic`
+- `.heif`
 - `.zip`
 
 Standaard maximale bestandsgrootte: 15 MB.
+HEIC/HEIF-foto's van iPhone worden veilig geaccepteerd. Als conversie naar JPEG beschikbaar is, gebruikt Bewaarhet die versie voor OCR; anders wordt het bestand opgeslagen zonder dat de verwerking crasht.
 
 Geblokkeerde of niet-ondersteunde typen zoals `.exe`, `.js`, `.vbs`, `.bat`, `.cmd`, `.ps1`, `.scr`, `.msi`, `.html`, `.php`, macro-bestanden zoals `.docm` en `.xlsm`, onbekende extensies en archieven zonder veilige validator zoals `.rar`, `.7z`, `.tar` en `.gz` worden geweigerd.
 

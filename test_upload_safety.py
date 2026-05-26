@@ -28,6 +28,8 @@ ALLOWED_EXTENSIONS = {
     '.gif',
     '.bmp',
     '.tiff',
+    '.heic',
+    '.heif',
     '.zip',
     '.rar',
     '.7z',
@@ -75,6 +77,10 @@ def _odf_bytes(mimetype: str) -> bytes:
         archive.writestr('content.xml', b'<document>safe</document>')
         archive.writestr('META-INF/manifest.xml', b'<manifest />')
     return buffer.getvalue()
+
+
+def _heif_bytes(brand: bytes = b'heic') -> bytes:
+    return b'\x00\x00\x00\x18ftyp' + brand + b'\x00\x00\x00\x00' + brand + b'\x00\x00\x00\x00'
 
 
 class UploadSafetyTests(unittest.TestCase):
@@ -168,6 +174,46 @@ class UploadSafetyTests(unittest.TestCase):
         send_html.assert_called_once()
         self.assertEqual(send_html.call_args.args[1], 'Je document is veilig opgeslagen')
         self.assertIn('note.rtf', send_html.call_args.args[2])
+
+    def test_valid_heic_accepted_without_ocr_crash(self) -> None:
+        att = _attachment('bon.heic', _heif_bytes(b'heic'))
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.ocr_space') as ocr_space,
+            patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.add_document') as add_document,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        ocr_space.assert_not_called()
+        upload_file.assert_called_once()
+        add_document.assert_called_once()
+        send_html.assert_called_once()
+        self.assertIn('bon.heic', send_html.call_args.args[2])
+
+    def test_valid_heif_accepted_without_ocr_crash(self) -> None:
+        att = _attachment('document.heif', _heif_bytes(b'heif'))
+
+        with (
+            patch('bewaarhet.processor.settings', self._settings()),
+            patch('bewaarhet.processor.ocr_space') as ocr_space,
+            patch('bewaarhet.processor._resolve_filename_collision', side_effect=lambda _customer, _category, filename: filename),
+            patch('bewaarhet.processor.upload_file') as upload_file,
+            patch('bewaarhet.processor.add_document') as add_document,
+            patch('bewaarhet.processor.send_html') as send_html,
+            patch('bewaarhet.processor.apply_rate_limit_or_reply', return_value=True),
+        ):
+            process_upload_mail(_mail(att))
+
+        ocr_space.assert_not_called()
+        upload_file.assert_called_once()
+        add_document.assert_called_once()
+        send_html.assert_called_once()
+        self.assertIn('document.heif', send_html.call_args.args[2])
 
     def test_multiple_successful_attachments_get_one_summary_mail(self) -> None:
         attachments = [

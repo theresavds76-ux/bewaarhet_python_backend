@@ -29,7 +29,7 @@ DEFAULT_ALLOWED_EXTENSIONS = (
     '.pdf,.doc,.docx,.odt,'
     '.xls,.xlsx,.ods,.txt,.csv,.rtf,'
     '.jpg,.jpeg,.png,.gif,.bmp,.tiff,'
-    '.zip'
+    '.heic,.heif,.zip'
 )
 
 DEFAULT_TRIAL_ALLOWED_EXTENSIONS = DEFAULT_ALLOWED_EXTENSIONS

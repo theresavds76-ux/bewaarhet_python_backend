@@ -30,6 +30,8 @@ SAFE_ALLOWED_EXTENSIONS = {
     '.gif',
     '.bmp',
     '.tiff',
+    '.heic',
+    '.heif',
     '.zip',
 }
 
@@ -57,6 +59,19 @@ MAX_FILENAME_CHARS = 180
 MAX_ZIP_FILES = 20
 MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 30 * 1024 * 1024
 MAX_ZIP_MEMBER_BYTES = 15 * 1024 * 1024
+HEIF_BRANDS = {
+    b'heic',
+    b'heix',
+    b'hevc',
+    b'hevx',
+    b'heim',
+    b'heis',
+    b'hevm',
+    b'hevs',
+    b'heif',
+    b'mif1',
+    b'msf1',
+}
 
 
 @dataclass(frozen=True)
@@ -166,6 +181,11 @@ def _detect_content_type(content: bytes, extension: str = '') -> str:
         return 'bmp'
     if sample.startswith((b'II*\x00', b'MM\x00*')):
         return 'tiff'
+    if len(sample) >= 12 and sample[4:8] == b'ftyp':
+        brands = [sample[8:12]]
+        brands.extend(sample[index:index + 4] for index in range(16, min(len(sample), 64), 4))
+        if any(brand in HEIF_BRANDS for brand in brands):
+            return 'heif'
     if sample.startswith((b'PK\x03\x04', b'PK\x05\x06', b'PK\x07\x08')):
         return _detect_zip_based_type(content)
     if sample.lstrip().startswith(b'{\\rtf'):
@@ -202,6 +222,8 @@ def _content_type_matches_extension(extension: str, detected_type: str) -> bool:
         '.gif': {'gif'},
         '.bmp': {'bmp'},
         '.tiff': {'tiff'},
+        '.heic': {'heif'},
+        '.heif': {'heif'},
         '.zip': {'zip'},
     }
     return detected_type in expected.get(extension, set())

@@ -97,7 +97,7 @@ class StaticSiteSeoTests(unittest.TestCase):
         parser = parse_page('/')
         self.assertIn('Administratie bewaren via e-mail', html)
         self.assertIn('Stuur je bonnetjes, facturen en documenten naar Bewaarhet.', html)
-        self.assertIn('bewaarhet-overzicht-2.png', html)
+        self.assertIn('bewaarhet-overzicht-2.webp', html)
         self.assertIn('Bewaarhet herkent automatisch wat het is', html)
         self.assertIn('Gewoon via e-mail.', html)
         self.assertIn('Rustig geregeld.', html)

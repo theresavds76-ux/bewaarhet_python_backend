@@ -79,7 +79,7 @@ def _validate_attachment_content(att: Attachment, metadata_validation: Attachmen
     return _attachment_validation._validate_attachment_content(att, metadata_validation, settings)
 
 
-SUPPORTED_FILE_TYPES_TEXT = 'PDF, DOC, DOCX, ODT, XLS, XLSX, ODS, TXT, CSV, RTF, JPG, JPEG, PNG, GIF, BMP, TIFF en ZIP'
+SUPPORTED_FILE_TYPES_TEXT = 'PDF, DOC, DOCX, ODT, XLS, XLSX, ODS, TXT, CSV, RTF, JPG, JPEG, PNG, GIF, BMP, TIFF, HEIC, HEIF en ZIP'
 
 
 def _recipient_contains(mail: IncomingMail, address: str) -> bool:
@@ -134,6 +134,31 @@ def _received_parts(mail: IncomingMail) -> tuple[str, str, str]:
     except Exception:
         dt = datetime.now()
     return dt.strftime('%Y-%m-%d'), dt.strftime('%Y'), dt.strftime('%m')
+
+
+def _prepare_attachment_for_ocr(content: bytes, filename: str, extension: str) -> tuple[bytes, str] | None:
+    if extension not in {'.heic', '.heif'}:
+        return content, filename
+
+    try:
+        import pillow_heif
+        from PIL import Image
+        from io import BytesIO
+    except Exception:
+        print("HEIC/HEIF OCR overgeslagen: conversie-ondersteuning niet beschikbaar.")
+        return None
+
+    try:
+        pillow_heif.register_heif_opener()
+        image = Image.open(BytesIO(content))
+        if image.mode not in {'RGB', 'L'}:
+            image = image.convert('RGB')
+        output = BytesIO()
+        image.save(output, format='JPEG', quality=92)
+        return output.getvalue(), f'{filename}.jpg'
+    except Exception:
+        print("HEIC/HEIF OCR overgeslagen: bestand kon niet veilig worden geconverteerd.")
+        return None
 
 
 def _dropbox_path(customer: str, category: str, filename: str) -> str:
@@ -691,7 +716,11 @@ def process_upload_mail(mail: IncomingMail) -> None:
             ocr_text = _attachment_context_text(mail)
             print("ZIP-archief opgeslagen zonder uitpakken of OCR.")
         else:
-            ocr_text = ocr_space(att.content, original_filename)
+            ocr_input = _prepare_attachment_for_ocr(att.content, original_filename, validation.extension)
+            if ocr_input is None:
+                ocr_text = _attachment_context_text(mail)
+            else:
+                ocr_text = ocr_space(*ocr_input)
 
         category = classify_document(
             ocr_text,
