@@ -97,14 +97,16 @@ class StaticSiteSeoTests(unittest.TestCase):
         parser = parse_page('/')
         self.assertIn('Administratie bewaren via e-mail', html)
         self.assertIn('Stuur je bonnetjes, facturen en documenten naar Bewaarhet.', html)
-        self.assertIn('Hoe werkt het?', html)
-        self.assertIn('Wat kun je bewaren?', html)
-        self.assertIn('Voor wie is Bewaarhet?', html)
-        self.assertIn('Voorbeelden van zoekopdrachten', html)
-        self.assertIn('Veiligheid en privacy', html)
-        self.assertIn('Veelgestelde vragen', html)
+        self.assertIn('bewaarhet-overzicht-2.png', html)
+        self.assertIn('Bewaarhet herkent automatisch wat het is', html)
+        self.assertIn('Gewoon via e-mail.', html)
+        self.assertIn('Rustig geregeld.', html)
+        self.assertNotIn('Wat kun je bewaren?', html)
+        self.assertNotIn('Voor wie is Bewaarhet?', html)
+        self.assertNotIn('Voorbeelden van zoekopdrachten', html)
+        self.assertNotIn('Veelgestelde vragen', html)
         self.assertTrue(any(script.get('type') == 'application/ld+json' for script in parser.scripts))
-        self.assertIn('"@type": "FAQPage"', html)
+        self.assertNotIn('"@type": "FAQPage"', html)
 
     def test_sitemap_contains_canonical_urls(self) -> None:
         sitemap = DOCS / 'sitemap.xml'

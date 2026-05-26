@@ -48,27 +48,6 @@
         "provider": {"@id": "https://bewaarhet.nl/#organization"},
         "areaServed": "NL",
         "description": "Bewaarhet helpt je bonnetjes, facturen en documenten via e-mail te bewaren en later terug te vinden."
-      },
-      {
-        "@type": "FAQPage",
-        "@id": "https://bewaarhet.nl/#faq",
-        "mainEntity": [
-          {
-            "@type": "Question",
-            "name": "Heb ik een app nodig?",
-            "acceptedAnswer": {"@type": "Answer", "text": "Nee. Bewaarhet werkt via e-mail. Je stuurt documenten door en zoekt later ook via e-mail."}
-          },
-          {
-            "@type": "Question",
-            "name": "Wanneer wordt een document opgeslagen?",
-            "acceptedAnswer": {"@type": "Answer", "text": "Bij nieuwe gebruikers wordt eerst het e-mailadres bevestigd. Daarna worden documenten verwerkt en opgeslagen."}
-          },
-          {
-            "@type": "Question",
-            "name": "Welke bestanden kan ik bewaren?",
-            "acceptedAnswer": {"@type": "Answer", "text": "Je kunt veel gewone document- en afbeeldingsbestanden sturen, zoals PDF, Word, Excel, ODT, tekstbestanden, JPG, PNG en ZIP met veilige inhoud."}
-          }
-        ]
       }
     ]
   }
@@ -80,11 +59,9 @@
     <nav class="wrap" aria-label="Hoofdnavigatie">
       <a class="brand" href="/"><img class="brand-logo" src="/bewaarhet-logo-glow.png?v=20260522-cosmic" alt="Bewaarhet" width="936" height="530"></a>
       <div class="nav-links">
+        <a href="#demo">Demo</a>
         <a href="#hoe-werkt-het">Zo werkt het</a>
-        <a href="#bewaren">Wat bewaren?</a>
-        <a href="#voor-wie">Voor wie</a>
-        <a href="#veiligheid">Veiligheid</a>
-        <a href="#faq">FAQ</a>
+        <a href="#vertrouwen">Vertrouwen</a>
       </div>
       <a class="button" href="mailto:service@bewaarhet.nl">Probeer gratis</a>
     </nav>
@@ -110,156 +87,34 @@
 
     </section>
 
-    <section class="organize-preview" id="overzicht" aria-labelledby="organize-title">
+    <section class="organize-preview demo-section" id="demo" aria-label="Bewaarhet van chaos naar rust">
       <div class="wrap">
-        <div class="section-head wide-head">
-          <h2 id="organize-title">Losse bestanden worden herkenbare documenten.</h2>
-          <p>Van losse bonnetjes, scans en bijlagen naar herkenbare documenten die je later gewoon terugvindt.</p>
-        </div>
-        <div class="organize-showcase">
-          <div class="organize-stage" aria-label="Voor en na Bewaarhet">
-            <div class="transform-panel chaos-panel">
-              <span class="flow-label">Jij stuurt</span>
-              <div class="chaos-stack" aria-label="Rommelige bestanden">
-                <div class="inbox-glow" aria-hidden="true"></div>
-                <div class="loose-file file-photo">
-                  <span>IMG_4821.jpg</span>
-                </div>
-                <div class="loose-file file-scan">
-                  <span>scan_final_v2.pdf</span>
-                </div>
-                <div class="loose-file file-bill">
-                  <span>factuur.pdf</span>
-                </div>
-                <div class="loose-file file-whatsapp">
-                  <span>WhatsApp-afbeelding</span>
-                </div>
-                <div class="loose-file file-warranty">
-                  <span>ctrct0726.jpg</span>
-                </div>
-                <div class="receipt-preview" aria-hidden="true">
-                  <i></i><i></i><i></i><i></i>
-                </div>
-              </div>
-            </div>
-
-            <div class="transform-core" aria-hidden="true">
-              <span></span>
-              <i></i>
-            </div>
-
-            <div class="transform-panel clarity-panel">
-              <span class="flow-label">Bewaarhet maakt ervan</span>
-              <div class="archive-window">
-                <div class="archive-topbar" aria-hidden="true">
-                  <span></span><span></span><span></span>
-                </div>
-                <div class="archive-search" aria-hidden="true">Gevonden: bon gamma</div>
-                <div class="organized-docs" aria-label="Georganiseerde documenten">
-                  <article class="doc-card">
-                    <small>Bon</small>
-                    <strong>2026-05-24_bon_gamma.pdf</strong>
-                    <span>Gamma &middot; 24 mei 2026</span>
-                  </article>
-                  <article class="doc-card">
-                    <small>Factuur</small>
-                    <strong>2026-05-02_factuur_kpn.pdf</strong>
-                    <span>KPN &middot; 2 mei 2026</span>
-                  </article>
-                  <article class="doc-card">
-                    <small>Contract</small>
-                    <strong>2026-04-11_contract_huurauto.pdf</strong>
-                    <span>Huurauto &middot; 11 april 2026</span>
-                  </article>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <p class="organize-note">Door slimme bestandsherkenning worden documenten automatisch herkenbaar en terugvindbaar opgeslagen.</p>
+        <figure class="infographic-showcase">
+          <img src="/bewaarhet-overzicht-2.png" alt="Infographic: eerst documentchaos, daarna herkent Bewaarhet automatisch wat iets is en stuur je later een zoekmail om het document terug te krijgen." width="1536" height="1024" loading="eager" decoding="async">
+        </figure>
       </div>
     </section>
 
-    <section id="hoe-werkt-het">
+    <section id="hoe-werkt-het" class="simple-process">
       <div class="wrap">
         <div class="section-head">
-          <h2>Hoe werkt het?</h2>
-          <p>Bewaarhet werkt gewoon via e-mail. Stuur iets door, bevestig een keer, en vraag later op wat je zoekt.</p>
+          <h2>Gewoon via e-mail.</h2>
         </div>
-        <div class="grid">
-          <div class="card"><span class="step">01</span><h3>Mail naar <a href="mailto:bewaren@bewaarhet.nl">bewaren@bewaarhet.nl</a></h3><p>Stuur documenten, bonnetjes of foto's gewoon als bijlage via e-mail.</p></div>
-          <div class="card"><span class="step">02</span><h3>Bevestig een keer je e-mailadres</h3><p>Daarna kun je gewoon blijven mailen. Bewaarhet bewaart het voor je.</p></div>
-          <div class="card"><span class="step">03</span><h3>Zoek via <a href="mailto:zoek@bewaarhet.nl">zoek@bewaarhet.nl</a></h3><p>Mail bijvoorbeeld "factuur KPN" of "bon IKEA 2024" en vind documenten later eenvoudig terug.</p></div>
-        </div>
+        <ol class="plain-steps">
+          <li><span>1</span><strong>Mail naar <a href="mailto:bewaren@bewaarhet.nl">bewaren@bewaarhet.nl</a></strong></li>
+          <li><span>2</span><strong>Bewaarhet herkent automatisch wat het is</strong></li>
+          <li><span>3</span><strong>Zoek later via <a href="mailto:zoek@bewaarhet.nl">zoek@bewaarhet.nl</a></strong></li>
+        </ol>
       </div>
     </section>
 
-    <section id="bewaren">
+    <section id="vertrouwen" class="compact-trust">
       <div class="wrap">
-        <div class="section-head">
-          <h2>Wat kun je bewaren?</h2>
-          <p>Bewaarhet is bedoeld voor papieren die je later nog eens nodig hebt, maar nu niet netjes wilt uitzoeken.</p>
-        </div>
-        <div class="grid">
-          <div class="card"><h3>Bonnetjes</h3><p>Foto's van kassabonnen, kleine aankopen en zakelijke uitgaven.</p><a href="/bonnetjes-bewaren/">Meer over bonnetjes bewaren</a></div>
-          <div class="card"><h3>Facturen</h3><p>PDF-facturen, betaalinformatie en terugkerende leveranciers.</p><a href="/facturen-bewaren/">Meer over facturen bewaren</a></div>
-          <div class="card"><h3>Documenten</h3><p>Contracten, garantiepapieren, brieven van de Belastingdienst en andere stukken die je later nodig hebt.</p><a href="/veilig-documenten-bewaren/">Meer over veilig bewaren</a></div>
-        </div>
-      </div>
-    </section>
-
-    <section id="voor-wie">
-      <div class="wrap">
-        <div class="section-head">
-          <h2>Voor wie is Bewaarhet?</h2>
-          <p>Voor mensen die documenten willen bewaren zonder er een administratieproject van te maken.</p>
-        </div>
-        <div class="grid two">
-          <div class="card"><h3>Voor zzp'ers</h3><p>Bewaar facturen, bonnetjes en losse stukken zonder meteen in boekhoudsoftware te duiken.</p><a href="/administratie-zzp/">Administratie voor zzp</a></div>
-          <div class="card"><h3>Voor drukke huishoudens</h3><p>Bewaar contracten, belastingbrieven en garantiebewijzen zonder te onthouden waar je ze hebt gelaten.</p><a href="/documenten-terugvinden/">Documenten terugvinden</a></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="search-section">
-      <div class="wrap">
-        <div class="section-head wide-head">
-          <h2>Voorbeelden van zoekopdrachten</h2>
-          <p>Je hoeft de exacte bestandsnaam niet te weten. Schrijf gewoon wat je zoekt.</p>
-        </div>
-        <div class="grid">
-          <div class="card"><span class="query">ik zoek factuur kpn</span><p>Voor terugkerende facturen.</p></div>
-          <div class="card"><span class="query">bon ikea 2024</span><p>Voor bonnetjes die anders in je foto's verdwijnen.</p></div>
-          <div class="card"><span class="query">garantie airfryer</span><p>Voor garantiebewijzen die je pas later nodig hebt.</p></div>
-        </div>
-      </div>
-    </section>
-
-    <section id="veiligheid" class="trust-band">
-      <div class="wrap">
-        <div class="section-head">
-          <h2>Veiligheid en privacy</h2>
-          <p>Bewaarhet doet geen overdreven beloftes. Je ziet wat er gebeurt: eerst bevestigen, dan bewaren, daarna terugvinden.</p>
-        </div>
-        <div class="grid">
-          <div class="card"><h3>Eerst bevestigen</h3><p>Een nieuw e-mailadres moet eerst bevestigd worden voordat documenten worden opgeslagen.</p></div>
-          <div class="card"><h3>Veilige bestandstypes</h3><p>Uitvoerbare bestanden, macrobestanden en onbekende extensies worden geweigerd.</p></div>
-          <div class="card"><h3>Bevestiging na opslag</h3><p>Na succesvolle opslag ontvang je een korte bevestiging met wat er is bewaard.</p></div>
-        </div>
-      </div>
-    </section>
-
-    <section id="faq">
-      <div class="wrap">
-        <div class="section-head">
-          <h2>Veelgestelde vragen</h2>
-          <p>Kort en zonder verkooppraat.</p>
-        </div>
-        <div class="faq">
-          <details open><summary>Heb ik een app nodig?</summary><p>Nee. De basis is e-mail: document sturen, bevestiging ontvangen en later zoeken per mail.</p></details>
-          <details><summary>Is Bewaarhet boekhoudsoftware?</summary><p>Nee. Bewaarhet helpt je documenten bewaren en terugvinden. Je boekhouding blijft een eigen plek houden.</p></details>
-          <details><summary>Welke bestanden kan ik sturen?</summary><p>Onder andere PDF, DOC, DOCX, ODT, XLS, XLSX, ODS, TXT, CSV, RTF, JPG, JPEG, PNG, GIF, BMP, TIFF en veilige ZIP-bestanden.</p></details>
-          <details><summary>Krijg ik een bevestiging?</summary><p>Ja. Na succesvolle opslag krijg je een korte mail met de opgeslagen bestandsnamen.</p></details>
+        <h2>Rustig geregeld.</h2>
+        <div class="trust-lines" aria-label="Wat Bewaarhet rustig houdt">
+          <span>Geen app nodig</span>
+          <span>Eerst bevestigen, dan bewaren</span>
+          <span>Je krijgt documenten terug per mail</span>
         </div>
       </div>
     </section>
