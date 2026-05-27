@@ -24,14 +24,25 @@ def _b64_decode(value: str) -> bytes:
 
 
 def _token_secret() -> bytes:
-    secret = (
-        getattr(settings, 'verification_token_secret', '')
-        or getattr(settings, 'dropbox_app_secret', '')
-        or getattr(settings, 'zoho_app_password', '')
+    # Try primary secret first
+    secret = getattr(settings, 'verification_token_secret', '').strip()
+    if secret:
+        return secret.encode('utf-8')
+    
+    # Fallback to secondary secrets (discouraged, for backward compat only)
+    secret = getattr(settings, 'dropbox_app_secret', '').strip()
+    if secret:
+        return secret.encode('utf-8')
+    
+    secret = getattr(settings, 'zoho_app_password', '').strip()
+    if secret:
+        return secret.encode('utf-8')
+    
+    # All secrets missing - this is a configuration error
+    raise RuntimeError(
+        'No token secret configured. Set VERIFICATION_TOKEN_SECRET in environment. '
+        'Fallback to DROPBOX_APP_SECRET or ZOHO_APP_PASSWORD is not reliable for production.'
     )
-    if not secret:
-        raise RuntimeError('verification token secret is not configured')
-    return secret.encode('utf-8')
 
 
 def create_activation_token(email: str, *, now: int | None = None) -> str:
@@ -54,27 +65,33 @@ def verify_activation_token(token: str, *, now: int | None = None) -> str:
     try:
         body, signature = token.split('.', 1)
     except ValueError as exc:
-        raise ValueError('invalid activation token') from exc
+        raise ValueError('invalid token format (missing signature separator)') from exc
 
-    expected = _b64_encode(hmac.new(_token_secret(), body.encode('ascii'), hashlib.sha256).digest())
+    try:
+        expected = _b64_encode(hmac.new(_token_secret(), body.encode('ascii'), hashlib.sha256).digest())
+    except RuntimeError as e:
+        # Secret configuration error - re-raise with context
+        raise RuntimeError(f'Cannot validate token: {e}') from e
+    
     if not hmac.compare_digest(signature, expected):
-        raise ValueError('invalid activation token signature')
+        raise ValueError('token signature verification failed')
 
     try:
         payload = json.loads(_b64_decode(body).decode('utf-8'))
     except Exception as exc:
-        raise ValueError('invalid activation token payload') from exc
+        raise ValueError('invalid token payload (cannot parse JSON)') from exc
 
     if payload.get('purpose') != TOKEN_PURPOSE:
-        raise ValueError('invalid activation token purpose')
+        raise ValueError(f'invalid token purpose (got {payload.get("purpose")}, expected {TOKEN_PURPOSE})')
+    
     expires_at = int(payload.get('exp') or 0)
     current_time = int(time.time() if now is None else now)
     if expires_at < current_time:
-        raise ValueError('activation token expired')
+        raise ValueError(f'token expired ({expires_at} < {current_time})')
 
     customer_email = canonical_customer_identity(str(payload.get('email') or ''))
     if not customer_email:
-        raise ValueError('activation token has no email')
+        raise ValueError('token has invalid email')
     return customer_email
 
 

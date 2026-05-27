@@ -75,6 +75,29 @@ DROPBOX_APP_SECRET=replace_with_real_value
 
 `DROPBOX_ACCESS_TOKEN` is not used by the current code.
 
+**CRITICAL: Activation Token Secret**
+
+Customer email activation links are cryptographically signed. A long random secret is REQUIRED:
+
+```bash
+# Generate a secure random secret (min 32 chars, use this exact command):
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Then add to `.env`:
+
+```env
+# Use the output from the above command
+VERIFICATION_TOKEN_SECRET=<paste-the-generated-secret-here>
+VERIFICATION_TOKEN_TTL_HOURS=72
+```
+
+**IMPORTANT:**
+- The same `VERIFICATION_TOKEN_SECRET` **MUST** be used on all production containers (both `bewaarhet_worker` and `bewaarhet_activation`)
+- Changing this secret will invalidate all existing activation tokens
+- This secret **MUST** be kept secret (do not commit to git, use VPS env file only)
+- If this is not set, activation links will fail with `RuntimeError: No token secret configured`
+
 ## Runtime Folders
 
 ```bash

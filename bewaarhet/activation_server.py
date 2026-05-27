@@ -45,8 +45,22 @@ def activation_response_for_token(token: str | None) -> ActivationResponse:
         return ActivationResponse(400, _render('activation_invalid.html'))
     try:
         activate_customer_from_token(token)
+    except RuntimeError as exc:
+        # Configuration error (missing secrets, etc)
+        error_msg = str(exc)
+        sanitized = sanitize_for_log(error_msg)
+        print(f"activation failed | error_type=RuntimeError | config_error={sanitized}")
+        return ActivationResponse(400, _render('activation_invalid.html'))
+    except ValueError as exc:
+        # Token validation error (invalid signature, expired, etc)
+        error_reason = sanitize_for_log(str(exc))
+        print(f"activation failed | error_type=ValueError | reason={error_reason}")
+        return ActivationResponse(400, _render('activation_invalid.html'))
     except Exception as exc:
-        print(f"activation failed | error={sanitize_for_log(type(exc).__name__)}")
+        # Unexpected error
+        error_type = sanitize_for_log(type(exc).__name__)
+        error_msg = sanitize_for_log(str(exc)[:100])
+        print(f"activation failed | error_type={error_type} | message={error_msg}")
         return ActivationResponse(400, _render('activation_invalid.html'))
     return ActivationResponse(200, _render('activation_success.html'))
 

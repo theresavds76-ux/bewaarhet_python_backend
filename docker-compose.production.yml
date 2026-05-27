@@ -26,7 +26,7 @@ services:
     container_name: bewaarhet-worker
     restart: unless-stopped
     env_file:
-      - path: ${BEWAARHET_ENV_FILE:-/root/bewaarhet.env}
+      - path: ${BEWAARHET_ENV_FILE:-/opt/bewaarhet/.env}
         required: false
     environment:
       DATA_DIR: /app/data
@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "bewaarhet.activation_server"]
     env_file:
-      - path: ${BEWAARHET_ENV_FILE:-/root/bewaarhet.env}
+      - path: ${BEWAARHET_ENV_FILE:-/opt/bewaarhet/.env}
         required: false
     environment:
       DATA_DIR: /app/data
