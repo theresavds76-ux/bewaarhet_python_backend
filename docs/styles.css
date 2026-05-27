@@ -1766,3 +1766,46 @@ footer a {
     opacity: 0.85;
   }
 }
+
+/* Temporary clean infographic replacement */
+.demo-section {
+  padding: clamp(34px, 5vw, 68px) 0;
+}
+
+.organize-preview {
+  background:
+    radial-gradient(circle at 50% 0%, rgba(115, 232, 255, 0.08), transparent 30rem),
+    linear-gradient(180deg, rgba(3, 10, 24, 0.54), rgba(4, 13, 29, 0.72));
+}
+
+.infographic-showcase {
+  width: min(100%, 1220px);
+  margin: 0 auto;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: clamp(18px, 2vw, 30px);
+  background: transparent;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.22);
+}
+
+.infographic-showcase::before {
+  display: none;
+}
+
+.infographic-showcase img {
+  position: static;
+  display: block;
+  width: 100%;
+  height: auto;
+  opacity: 1;
+}
+
+@media (max-width: 620px) {
+  .demo-section {
+    padding: 30px 0 46px;
+  }
+
+  .infographic-showcase {
+    border-radius: 18px;
+  }
+}
