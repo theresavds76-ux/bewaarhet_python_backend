@@ -86,6 +86,11 @@ def _recipient_contains(mail: IncomingMail, address: str) -> bool:
     return address.lower() in (getattr(mail, 'to_email', '') or '').lower()
 
 
+def _is_addressed_to_bewaarhet(mail: IncomingMail) -> bool:
+    recipient_text = (getattr(mail, 'to_email', '') or '').lower()
+    return '@bewaarhet.nl' in recipient_text
+
+
 def _is_self_trigger_mail(mail: IncomingMail) -> bool:
     sender = canonical_customer_identity(mail.from_email)
     service_addresses = {
@@ -797,19 +802,27 @@ def process_upload_mail(mail: IncomingMail) -> None:
     _try_send_storage_success_reply(mail.from_email, stored_filenames)
 
 
-def process_mail(mail: IncomingMail) -> None:
+def process_mail(mail: IncomingMail) -> bool:
+    if not _is_addressed_to_bewaarhet(mail):
+        print(
+            "Mail buiten Bewaarhet-scope genegeerd"
+            f" | recipient={sanitize_for_log(getattr(mail, 'to_email', '') or '-')}"
+            f" | sender={sanitize_for_log(canonical_customer_identity(mail.from_email))}"
+        )
+        return False
+
     if _is_self_trigger_mail(mail):
         print(f"Mail loop/self-trigger geblokkeerd | sender={sanitize_for_log(canonical_customer_identity(mail.from_email))}")
-        return
+        return True
 
     if _recipient_contains(mail, 'zoek@bewaarhet.nl'):
         query = _search_query_from_mail(mail)
         _log_route('search', 'ontvanger bevat zoek@bewaarhet.nl')
         print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
         if not apply_rate_limit_or_reply(mail.from_email, 'search'):
-            return
+            return True
         send_search_results(mail.from_email, query)
-        return
+        return True
 
     if _recipient_contains(mail, 'bewaren@bewaarhet.nl'):
         _log_route('store', 'ontvanger bevat bewaren@bewaarhet.nl')
@@ -817,7 +830,7 @@ def process_mail(mail: IncomingMail) -> None:
             process_upload_mail(mail)
         else:
             process_document_body_mail(mail)
-        return
+        return True
 
     if _recipient_contains(mail, 'service@bewaarhet.nl'):
         if _has_service_search_intent(mail):
@@ -825,21 +838,21 @@ def process_mail(mail: IncomingMail) -> None:
             _log_route('search', 'service@bewaarhet.nl met zoekintentie')
             print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
             if not apply_rate_limit_or_reply(mail.from_email, 'search'):
-                return
+                return True
             send_search_results(mail.from_email, query)
-            return
+            return True
 
         _log_route('store', 'service@bewaarhet.nl zonder zoekintentie')
         if mail.has_attachments:
             process_upload_mail(mail)
         else:
             process_document_body_mail(mail)
-        return
+        return True
 
     if mail.has_attachments:
         _log_route('store', 'mail heeft bijlagen')
         process_upload_mail(mail)
-        return
+        return True
 
     if is_probable_search_email(
         mail.subject,
@@ -851,14 +864,16 @@ def process_mail(mail: IncomingMail) -> None:
         _log_route('search', 'expliciete zoekterm in onderwerp')
         print(f"Zoekmail herkend. Zoekterm: {sanitize_for_log(query)}")
         if not apply_rate_limit_or_reply(mail.from_email, 'search'):
-            return
+            return True
         send_search_results(mail.from_email, query)
-        return
+        return True
 
     if is_document_email_without_attachment(mail):
         _log_route('store', 'documentachtige mail zonder bijlage')
         process_document_body_mail(mail)
-        return
+        return True
+
+    return True
 
 
 if __name__ == "__main__":
@@ -874,8 +889,11 @@ if __name__ == "__main__":
         print(f"Onderwerp: {sanitize_for_log(mail.subject)}")
         print(f"Bijlagen: {len(mail.attachments)}")
 
-        process_mail(mail)
+        handled = process_mail(mail)
 
         print("Verwerkt.")
-        mark_as_seen(mail.uid)
-        print("Mail gemarkeerd als gelezen.")
+        if handled:
+            mark_as_seen(mail.uid)
+            print("Mail gemarkeerd als gelezen.")
+        else:
+            print("Mail niet gemarkeerd als gelezen omdat hij buiten Bewaarhet-scope valt.")

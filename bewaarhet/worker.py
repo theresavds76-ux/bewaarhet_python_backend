@@ -22,7 +22,11 @@ def run_once() -> None:
             print(f'Van: {mail.from_email}')
             print(f'Onderwerp: {sanitize_for_log(mail.subject)}')
 
-            process_mail(mail)
+            handled = process_mail(mail)
+
+            if not handled:
+                print('Mail buiten Bewaarhet-scope overgeslagen; niet gemarkeerd als gelezen.')
+                continue
 
             mark_as_seen(mail.uid)
 
