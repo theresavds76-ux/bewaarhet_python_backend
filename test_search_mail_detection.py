@@ -254,6 +254,47 @@ class SearchMailDetectionTests(unittest.TestCase):
 
         send_search_results.assert_called_once_with('user@example.com', 'factuur kpn april')
 
+    def test_non_bewaarhet_recipient_is_ignored_even_if_document_like(self) -> None:
+        mail = _mail_from(
+            'EaseFlow Leadrapport - 2026-06-08',
+            'Orderverwerking, factureren en facturatie komen voor in dit rapport.',
+            from_email='theresa@youandigoods.nl',
+            to_email='theresa@easeflow.nl',
+        )
+
+        output = StringIO()
+        with (
+            patch('bewaarhet.processor.process_document_body_mail') as process_document_body_mail,
+            patch('bewaarhet.processor.process_upload_mail') as process_upload_mail,
+            patch('bewaarhet.processor.send_search_results') as send_search_results,
+            redirect_stdout(output),
+        ):
+            handled = process_mail(mail)
+
+        self.assertFalse(handled)
+        process_document_body_mail.assert_not_called()
+        process_upload_mail.assert_not_called()
+        send_search_results.assert_not_called()
+        self.assertIn('Mail buiten Bewaarhet-scope genegeerd', output.getvalue())
+
+    def test_factureren_and_facturatie_are_not_invoice_signals(self) -> None:
+        self.assertFalse(
+            is_probable_search_email(
+                'EaseFlow Leadrapport',
+                'Dit rapport noemt orderverwerking, factureren en facturatie, maar bevat geen betaaldocument.',
+                False,
+                'theresa@easeflow.nl',
+            )
+        )
+        mail = _mail(
+            'EaseFlow Leadrapport',
+            'Dit rapport noemt orderverwerking, factureren en facturatie zonder echte betaalgegevens.',
+            to_email='service@bewaarhet.nl',
+        )
+        from bewaarhet.utils import is_document_email_without_attachment
+
+        self.assertFalse(is_document_email_without_attachment(mail))
+
 
 if __name__ == '__main__':
     unittest.main()

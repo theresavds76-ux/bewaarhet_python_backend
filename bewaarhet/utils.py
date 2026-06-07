@@ -64,9 +64,14 @@ def is_document_email_without_attachment(mail) -> bool:
         ('infomedics', 'rekening'),
         ('lemonade', 'polis'),
     ]
-    return any(signal in text for signal in signals) or any(
+    return any(_contains_phrase(text, signal) for signal in signals) or any(
         first in text and second in text for first, second in strong_pairs
     )
+
+
+def _contains_phrase(text: str, phrase: str) -> bool:
+    pattern = r'(?<![a-z0-9])' + re.escape(phrase.lower()) + r'(?![a-z0-9])'
+    return re.search(pattern, text.lower()) is not None
 
 
 def extract_search_text(subject: str, body: str) -> str:
@@ -1493,7 +1498,7 @@ def detect_purpose(ocr_text: str, subject: str, original_filename: str = '') -> 
         'invoice', 'invoice#', 'invoice #', 'invoice number',
         'annual subscription fee', 'subscription fee', 'due date', 'vat',
     ]
-    if any(term in text for term in invoice_terms):
+    if any(_contains_phrase(text, term) for term in invoice_terms):
         return 'factuur'
     if any(k in text for k in ('kassabon', 'pinbon', 'bonnetje')):
         return 'bon'

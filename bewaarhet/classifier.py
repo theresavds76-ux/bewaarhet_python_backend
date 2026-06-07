@@ -53,6 +53,26 @@ def _count_matches(haystack: str, phrase: str) -> int:
         return 0
 
 
+def _has_invoice_evidence(haystack: str) -> bool:
+    evidence_terms = [
+        'factuur',
+        'invoice',
+        'factuurnummer',
+        'invoice number',
+        'invoice#',
+        'invoice #',
+        'factuurdatum',
+        'betalingstermijn',
+        'vervaldatum',
+        'totaalbedrag',
+        'btw-bedrag',
+        'subtotal',
+        'subtotaal',
+        'iban',
+    ]
+    return any(_count_matches(haystack, term) for term in evidence_terms)
+
+
 def classify_rules(text: str, filename: str = '', subject: str = '', snippet: str = '') -> str:
     haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
 
@@ -122,7 +142,7 @@ def classify_rules(text: str, filename: str = '', subject: str = '', snippet: st
         if any(sig in haystack for sig in ['betalingsregeling', 'aanslag', 'inkomstenbelasting', 'loonheffing', 'omzetbelasting', 'aangifteformulier', 'betaalinformatie', 'betalingsherinnering', 'belastingaanslag']):
             scores['belasting'] += 5  # strong boost
 
-    if any(signal in haystack for signal in invoice_document_signals):
+    if any(_count_matches(haystack, signal) for signal in invoice_document_signals):
         scores['facturen'] += 4
         if not any(signal in haystack for signal in receipt_only_signals):
             scores['bonnen'] = max(0, scores['bonnen'] - 3)
@@ -134,6 +154,9 @@ def classify_rules(text: str, filename: str = '', subject: str = '', snippet: st
 
     # If no evidence, return 'twijfel' to trigger fallback
     if top_score == 0:
+        return 'twijfel'
+
+    if top_cat == 'facturen' and not _has_invoice_evidence(haystack):
         return 'twijfel'
 
     # If top is not sufficiently stronger than second, return 'twijfel'
