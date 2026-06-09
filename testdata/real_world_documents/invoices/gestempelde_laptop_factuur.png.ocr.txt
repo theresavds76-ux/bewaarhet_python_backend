@@ -1,0 +1,9 @@
+TechStore Demo B.V.
+Factuur
+Factuurnummer TS-2026-7788
+Factuurdatum 06-06-2026
+Laptop model X
+Subtotaal EUR 825,62
+BTW-bedrag EUR 173,38
+Totaalbedrag EUR 999,00
+BETAALD

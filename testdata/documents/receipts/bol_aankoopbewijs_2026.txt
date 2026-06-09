@@ -1,0 +1,8 @@
+bol.com
+Aankoopbewijs
+Besteldatum: 03-06-2026
+Ordernummer: 4012345678
+Artikel: USB-C kabel
+Betaald met iDEAL
+Totaal: EUR 12,99
+Bedankt voor je aankoop.

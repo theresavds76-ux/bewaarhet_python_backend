@@ -1,0 +1,7 @@
+Lemonade Insurance N.V.
+Polisblad
+Polisnummer: LEM-2026-8842
+Ingangsdatum: 01-06-2026
+Inboedelverzekering
+Verzekerde: Demo Gebruiker
+Premie per maand: EUR 8,50

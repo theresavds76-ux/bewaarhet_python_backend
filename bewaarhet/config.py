@@ -78,6 +78,7 @@ class Settings:
     poll_seconds: int = int(os.getenv('POLL_SECONDS', '60'))
     customer_onboarding_enabled: bool = _bool_env('CUSTOMER_ONBOARDING_ENABLED', True)
     max_trial_documents: int = int(os.getenv('MAX_TRIAL_DOCUMENTS', '10'))
+    trial_days: int = int(os.getenv('TRIAL_DAYS', '14'))
     max_trial_storage_mb: int = int(os.getenv('MAX_TRIAL_STORAGE_MB', '100'))
     max_trial_file_size_mb: int = int(os.getenv('MAX_TRIAL_FILE_SIZE_MB', os.getenv('MAX_FILE_SIZE_MB', os.getenv('MAX_ATTACHMENT_MB', '15'))))
     max_trial_mails_per_hour: int = int(os.getenv('MAX_TRIAL_MAILS_PER_HOUR', '20'))
@@ -89,6 +90,18 @@ class Settings:
     activation_url: str = os.getenv('ACTIVATION_URL', '').strip()
     verification_token_secret: str = os.getenv('VERIFICATION_TOKEN_SECRET', '')
     verification_token_ttl_hours: int = int(os.getenv('VERIFICATION_TOKEN_TTL_HOURS', '72'))
+
+    mollie_api_key: str = os.getenv('MOLLIE_API_KEY', '')
+    mollie_base_url: str = os.getenv('MOLLIE_BASE_URL', 'https://api.mollie.com/v2').rstrip('/')
+    billing_enabled: bool = _bool_env('BILLING_ENABLED', False)
+    billing_amount_eur: str = os.getenv('BILLING_AMOUNT_EUR', '9.00')
+    billing_currency: str = os.getenv('BILLING_CURRENCY', 'EUR')
+    billing_interval: str = os.getenv('BILLING_INTERVAL', '1 month')
+    billing_description: str = os.getenv('BILLING_DESCRIPTION', 'Bewaarhet maandabonnement')
+    billing_start_url: str = os.getenv('BILLING_START_URL', '').strip()
+    billing_redirect_url: str = os.getenv('BILLING_REDIRECT_URL', '').strip()
+    billing_webhook_url: str = os.getenv('BILLING_WEBHOOK_URL', '').strip()
+    billing_token_ttl_hours: int = int(os.getenv('BILLING_TOKEN_TTL_HOURS', '168'))
 
     def __post_init__(self):
         configured_extensions = _csv(os.getenv('ALLOWED_EXTENSIONS', ''))

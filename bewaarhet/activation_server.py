@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .billing import BillingError, process_mollie_payment_webhook, start_checkout_for_account, verify_billing_token
 from .config import settings
 from .customer_onboarding import activate_customer_from_token
 from .utils import sanitize_for_log
@@ -73,6 +74,37 @@ def activation_response_for_path(path: str) -> ActivationResponse:
     return activation_response_for_token(token)
 
 
+def billing_redirect_for_path(path: str) -> tuple[int, str | None, str]:
+    parsed = urlparse(path)
+    token = parse_qs(parsed.query).get('token', [''])[0]
+    if not token:
+        return 400, None, 'Betaallink is ongeldig of onvolledig.'
+    try:
+        account_id = verify_billing_token(token)
+        checkout_url = start_checkout_for_account(account_id)
+    except (BillingError, ValueError) as exc:
+        print(f"billing start failed | error={sanitize_for_log(exc)}")
+        return 400, None, 'Betaallink is ongeldig of kon niet worden gestart.'
+    except Exception as exc:
+        print(f"billing start failed | error_type={sanitize_for_log(type(exc).__name__)} | message={sanitize_for_log(str(exc)[:100])}")
+        return 500, None, 'Betaling kon niet worden gestart.'
+    return 302, checkout_url, ''
+
+
+def billing_return_response() -> ActivationResponse:
+    return ActivationResponse(200, '''
+        <!doctype html>
+        <html lang="nl">
+        <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Betaling ontvangen | Bewaarhet</title></head>
+        <body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:680px;margin:48px auto;padding:0 20px;line-height:1.5;">
+            <h1>Bedankt</h1>
+            <p>Als de betaling is gelukt, verwerken we je Bewaarhet-account automatisch. Je kunt dit venster sluiten.</p>
+            <p>Groet,<br>Bewaarhet</p>
+        </body>
+        </html>
+    ''')
+
+
 class ActivationHandler(BaseHTTPRequestHandler):
     server_version = 'BewaarhetActivation/1.0'
 
@@ -80,8 +112,43 @@ class ActivationHandler(BaseHTTPRequestHandler):
         if self.path == '/healthz':
             self._send_text(200, 'ok\n')
             return
+        parsed = urlparse(self.path)
+        if parsed.path == '/betaal':
+            status_code, location, message = billing_redirect_for_path(self.path)
+            if status_code == 302 and location:
+                self.send_response(302)
+                self.send_header('Location', location)
+                self.send_header('Cache-Control', 'no-store')
+                self.end_headers()
+                return
+            self._send_text(status_code, message + '\n')
+            return
+        if parsed.path == '/betaal/bedankt':
+            response = billing_return_response()
+            self._send_html(response.status_code, response.html)
+            return
         response = activation_response_for_path(self.path)
         self._send_html(response.status_code, response.html)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path != '/mollie/webhook':
+            self._send_text(404, 'not found\n')
+            return
+        length = int(self.headers.get('Content-Length') or '0')
+        payload = self.rfile.read(min(length, 4096)).decode('utf-8', errors='replace')
+        payment_id = parse_qs(payload).get('id', [''])[0]
+        try:
+            result = process_mollie_payment_webhook(payment_id)
+            print(f"mollie webhook processed | payment_id={sanitize_for_log(payment_id)} | result={sanitize_for_log(result)}")
+            self._send_text(200, 'ok\n')
+        except Exception as exc:
+            print(
+                "mollie webhook failed"
+                f" | payment_id={sanitize_for_log(payment_id)}"
+                f" | error={sanitize_for_log(str(exc)[:200])}"
+            )
+            self._send_text(500, 'error\n')
 
     def log_message(self, format: str, *args) -> None:
         print(f"activation request | remote={sanitize_for_log(self.client_address[0])} | status={sanitize_for_log(args[1] if len(args) > 1 else '')}")

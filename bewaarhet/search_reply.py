@@ -6,7 +6,7 @@ import time
 from rapidfuzz import fuzz
 
 from .config import settings
-from .database import mark_missing_file, search_documents
+from .database import account_context_for_email, mark_missing_file, search_documents
 from .dropbox_client import is_not_found_error, temporary_link
 from .mail_client import send_html
 from .utils import canonical_customer_identity, html_escape, safe_customer_folder, sanitize_for_log
@@ -22,6 +22,7 @@ QUERY_TERM_EXPANSIONS = {
         'belasting', 'kwijtschelding', 'kwijtscheldingsformulier',
         'gemeentebelastingen',
     ],
+    'belastingaanslag': ['belasting', 'aanslag', 'voorlopige', 'inkomstenbelasting'],
     'huurcontract': ['huur', 'contract', 'wonen', 'woning'],
     'rekening': ['rekening'],
     'polis': ['polis', 'verzekering'],
@@ -301,13 +302,18 @@ def _dropbox_path_contains_customer_folder(dropbox_path: str, expected_folder: s
 def _record_owned_by_sender(row, search_sender: str) -> bool:
     customer_identity = canonical_customer_identity(search_sender)
     expected_folder = safe_customer_folder(customer_identity)
+    context = account_context_for_email(customer_identity)
+    account_id = str(context['account_id']) if context else ''
 
     row_identity = canonical_customer_identity(_row_value(row, 'customer_identity'))
     row_email = canonical_customer_identity(_row_value(row, 'customer_email'))
+    row_account_id = _row_value(row, 'account_id')
     row_folder = _row_value(row, 'safe_customer_folder')
     row_path = _row_value(row, 'dropbox_path')
 
     return (
+        bool(account_id and row_account_id and str(row_account_id) == account_id)
+        or
         row_identity == customer_identity
         or row_email == customer_identity
         or row_folder == expected_folder

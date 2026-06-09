@@ -1,0 +1,183 @@
+{
+  "documents": [
+    {
+      "id": "shadow_tax_assessment",
+      "path": "tax/schaduw_belastingaanslag.png",
+      "subject": "Foto belastingaanslag met schaduw",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "belasting",
+        "supplier": "belastingdienst",
+        "filename_contains": [
+          "belasting",
+          "belastingdienst",
+          "2026"
+        ],
+        "search_queries": [
+          "belastingaanslag",
+          "belastingdienst aanslag"
+        ],
+        "ocr_terms": [
+          "belastingdienst",
+          "aanslag",
+          "inkomstenbelasting"
+        ],
+        "min_ocr_chars": 60,
+        "min_ocr_score": 0.67
+      }
+    },
+    {
+      "id": "lowres_health_policy",
+      "path": "policies/lage_resolutie_zorgverzekering.png",
+      "subject": "Lage resolutie zorgverzekering polis",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "overig",
+        "supplier": "",
+        "filename_contains": [
+          "polis",
+          "2026"
+        ],
+        "search_queries": [
+          "zorgverzekering",
+          "zoek polis"
+        ],
+        "ocr_terms": [
+          "polisblad",
+          "zorgverzekering",
+          "premie"
+        ],
+        "min_ocr_chars": 55,
+        "min_ocr_score": 0.67
+      }
+    },
+    {
+      "id": "cropped_energy_contract",
+      "path": "contracts/afgesneden_energiecontract.png",
+      "subject": "Afgesneden energiecontract",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "contracten",
+        "supplier": "greenchoice",
+        "filename_contains": [
+          "contract",
+          "greenchoice",
+          "2026"
+        ],
+        "search_queries": [
+          "contract energie",
+          "greenchoice contract"
+        ],
+        "ocr_terms": [
+          "energiecontract",
+          "contractnummer",
+          "looptijd"
+        ],
+        "min_ocr_chars": 65,
+        "min_ocr_score": 0.67
+      }
+    },
+    {
+      "id": "stamped_laptop_invoice",
+      "path": "invoices/gestempelde_laptop_factuur.png",
+      "subject": "Factuur laptop met stempel",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "facturen",
+        "supplier": "techstore_demo",
+        "filename_contains": [
+          "factuur",
+          "techstore",
+          "2026"
+        ],
+        "search_queries": [
+          "factuur laptop",
+          "techstore factuur"
+        ],
+        "ocr_terms": [
+          "factuur",
+          "factuurnummer",
+          "laptop"
+        ],
+        "min_ocr_chars": 75,
+        "min_ocr_score": 0.67
+      }
+    },
+    {
+      "id": "handwritten_praxis_receipt",
+      "path": "receipts/bon_praxis_handgeschreven.png",
+      "subject": "Praxis bon met handgeschreven notitie",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "bonnen",
+        "supplier": "",
+        "filename_contains": [
+          "bon",
+          "2026"
+        ],
+        "search_queries": [
+          "bon praxis",
+          "verfroller bon"
+        ],
+        "ocr_terms": [
+          "praxis",
+          "kassabon",
+          "totaal"
+        ],
+        "min_ocr_chars": 55,
+        "min_ocr_score": 0.67
+      }
+    },
+    {
+      "id": "multilingual_recipe_note",
+      "path": "general/recept_appeltaart_meertalig.png",
+      "subject": "Recept appeltaart",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "notities",
+        "supplier": "",
+        "filename_contains": [
+          "notitie",
+          "recept"
+        ],
+        "search_queries": [
+          "recept appeltaart",
+          "familierecept"
+        ],
+        "ocr_terms": [
+          "appeltaart",
+          "bloem",
+          "kaneel"
+        ],
+        "min_ocr_chars": 50,
+        "min_ocr_score": 0.67
+      }
+    },
+    {
+      "id": "multipage_telecom_invoice",
+      "path": "invoices/telecom_factuur_meerdere_paginas.txt",
+      "subject": "Meerdere pagina telecom factuur",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "facturen",
+        "supplier": "odido",
+        "filename_contains": [
+          "factuur",
+          "odido",
+          "2026"
+        ],
+        "search_queries": [
+          "telecom factuur",
+          "odido rekening"
+        ],
+        "ocr_terms": [
+          "factuur",
+          "factuurnummer",
+          "totaalbedrag"
+        ],
+        "min_ocr_chars": 80,
+        "min_ocr_score": 0.67
+      }
+    }
+  ]
+}

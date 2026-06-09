@@ -1,0 +1,143 @@
+{
+  "documents": [
+    {
+      "id": "invoice_kpn",
+      "path": "invoices/kpn_factuur_juni_2026.txt",
+      "subject": "Factuur KPN juni 2026",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "facturen",
+        "supplier": "kpn",
+        "filename_contains": [
+          "factuur",
+          "kpn",
+          "2026"
+        ],
+        "search_queries": [
+          "zoek mijn KPN factuur",
+          "factuur internet"
+        ],
+        "min_ocr_chars": 80
+      }
+    },
+    {
+      "id": "receipt_bol",
+      "path": "receipts/bol_aankoopbewijs_2026.txt",
+      "subject": "Aankoopbewijs bol.com",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "bonnen",
+        "supplier": "bol",
+        "filename_contains": [
+          "aankoopbewijs",
+          "bol",
+          "2026"
+        ],
+        "search_queries": [
+          "zoek bon van bol",
+          "zoek aankoopbewijs kabel"
+        ],
+        "min_ocr_chars": 60
+      }
+    },
+    {
+      "id": "policy_lemonade",
+      "path": "policies/lemonade_polisblad_2026.txt",
+      "subject": "Polisblad inboedelverzekering",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "overig",
+        "supplier": "lemonade",
+        "filename_contains": [
+          "polis",
+          "lemonade",
+          "2026"
+        ],
+        "search_queries": [
+          "zoek polis",
+          "zoek lemonade verzekering"
+        ],
+        "min_ocr_chars": 60
+      }
+    },
+    {
+      "id": "contract_ziggo",
+      "path": "contracts/ziggo_contract_2026.txt",
+      "subject": "Contract Ziggo internet",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "contracten",
+        "supplier": "ziggo",
+        "filename_contains": [
+          "contract",
+          "ziggo",
+          "2026"
+        ],
+        "search_queries": [
+          "zoek contract",
+          "zoek ziggo overeenkomst"
+        ],
+        "min_ocr_chars": 70
+      }
+    },
+    {
+      "id": "tax_belastingdienst",
+      "path": "tax/belastingdienst_aanslag_2026.txt",
+      "subject": "Voorlopige aanslag inkomstenbelasting",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "belasting",
+        "supplier": "belastingdienst",
+        "filename_contains": [
+          "belasting",
+          "belastingdienst",
+          "2026"
+        ],
+        "search_queries": [
+          "zoek belastingaanslag",
+          "zoek aanslag inkomstenbelasting"
+        ],
+        "min_ocr_chars": 80
+      }
+    },
+    {
+      "id": "general_note",
+      "path": "general/notitie_meterstanden_2026.txt",
+      "subject": "Notitie meterstanden",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "notities",
+        "supplier": "",
+        "filename_contains": [
+          "notitie",
+          "2026"
+        ],
+        "search_queries": [
+          "zoek meterstanden",
+          "zoek jaarafrekening controle"
+        ],
+        "min_ocr_chars": 50
+      }
+    },
+    {
+      "id": "bad_quality_receipt_jumbo",
+      "path": "bad_quality/jumbo_bon_slechte_scan.png",
+      "subject": "Slechte scan kassabon Jumbo",
+      "date_received": "2026-06-09",
+      "expected": {
+        "category": "bonnen",
+        "supplier": "jumbo",
+        "filename_contains": [
+          "bon",
+          "jumbo",
+          "2026"
+        ],
+        "search_queries": [
+          "zoek jumbo bon",
+          "zoek kassabon melk"
+        ],
+        "min_ocr_chars": 40
+      }
+    }
+  ]
+}

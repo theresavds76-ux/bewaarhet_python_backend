@@ -14,6 +14,28 @@ Bewaarhet is een Python-worker die documenten bewaart en terugvindt via e-mail. 
 - `bewaarhet.classifier`: regelgebaseerde classificatie met optionele OpenAI fallback.
 - `bewaarhet.admin`: backup, restore, consistency check en cleanup utilities.
 
+## SaaS-fundament
+
+Bewaarhet blijft e-mail-first: nieuwe klanten hoeven niet eerst een accountformulier of dashboard te gebruiken. De eerste ervaring blijft een document mailen, het e-mailadres bevestigen en daarna testen.
+
+Onder water is er wel een accountlaag toegevoegd:
+
+- `accounts`: de echte klant/tenant.
+- `account_emails`: geverifieerde e-mailadressen per account, met label en rechten.
+- `documents.account_id`: accountkoppeling voor accountbreed zoeken.
+
+Hierdoor kunnen later meerdere e-mailadressen, zakelijk/prive labels, proeftijd, betaling en portaalbeheer worden toegevoegd zonder de lage instap te verliezen.
+
+Zie:
+
+- `docs/saas-voorstel-email-first.md`
+- `docs/saas-roadmap.md`
+- `docs/saas-implementation-log.md`
+- `docs/billing-mvp.md`
+- `docs/billing-deployment-checklist.md`
+- `docs/document-quality-testing.md`
+- `docs/real_world_quality_risks.md`
+
 ## Hoofdflows
 
 ### Opslaan
@@ -217,7 +239,7 @@ Development reset vereist expliciete bevestiging en verwijdert geen Dropbox file
 ## Tests
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 ## Deployment

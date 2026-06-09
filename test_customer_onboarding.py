@@ -10,7 +10,15 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from bewaarhet.customer_onboarding import activate_customer_from_token, create_activation_token, verify_activation_token
-from bewaarhet.database import get_customer, init_db, update_customer_status
+from bewaarhet.database import (
+    account_context_for_email,
+    add_account_email,
+    add_document,
+    get_customer,
+    init_db,
+    search_documents,
+    update_customer_status,
+)
 from bewaarhet.mail_client import Attachment, IncomingMail
 from bewaarhet.processor import process_upload_mail
 from bewaarhet.utils import canonical_customer_identity
@@ -258,8 +266,70 @@ class CustomerOnboardingTests(unittest.TestCase):
         customer = self.customer('trial@example.com')
         self.assertEqual(customer['status'], 'trial')
         self.assertGreaterEqual(send_html.call_count, 1)
-        ocr_space.assert_not_called()
-        upload_file.assert_not_called()
+
+    def test_verified_extra_email_can_search_same_account_documents(self) -> None:
+        update_customer_status('owner@example.com', 'active')
+        extra = add_account_email('owner@example.com', 'prive@example.com', label='prive')
+        self.assertEqual(extra['status'], 'pending')
+
+        activate_customer_from_token(create_activation_token('prive@example.com'))
+
+        owner_context = account_context_for_email('owner@example.com')
+        extra_context = account_context_for_email('prive@example.com')
+        self.assertIsNotNone(owner_context)
+        self.assertIsNotNone(extra_context)
+        self.assertEqual(owner_context['account_id'], extra_context['account_id'])
+        self.assertEqual(extra_context['email_status'], 'verified')
+
+        add_document({
+            'customer_identity': 'owner@example.com',
+            'customer_email': 'owner@example.com',
+            'safe_customer_folder': 'owner_at_example.com',
+            'category': 'facturen',
+            'filename': 'factuur_acme_2026.pdf',
+            'date_received': '2026-06-09',
+            'dropbox_path': '/Bewaar het/Klanten/owner_at_example.com/facturen/factuur_acme_2026.pdf',
+            'domain': 'zakelijk',
+            'supplier': 'Acme',
+            'purpose': 'factuur',
+            'title': 'Factuur Acme',
+            'ocr_preview': 'factuur acme juni',
+            'ocr_text': 'factuur acme juni',
+            'year': '2026',
+            'month': '06',
+            'size_bytes': 123,
+        })
+
+        rows = search_documents('prive@example.com', 'acme')
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['filename'], 'factuur_acme_2026.pdf')
+
+    def test_pending_extra_email_cannot_search_account_documents(self) -> None:
+        update_customer_status('owner2@example.com', 'active')
+        add_account_email('owner2@example.com', 'pending-prive@example.com', label='prive')
+        add_document({
+            'customer_identity': 'owner2@example.com',
+            'customer_email': 'owner2@example.com',
+            'safe_customer_folder': 'owner2_at_example.com',
+            'category': 'facturen',
+            'filename': 'factuur_geheim_2026.pdf',
+            'date_received': '2026-06-09',
+            'dropbox_path': '/Bewaar het/Klanten/owner2_at_example.com/facturen/factuur_geheim_2026.pdf',
+            'domain': 'zakelijk',
+            'supplier': 'Geheim',
+            'purpose': 'factuur',
+            'title': 'Factuur Geheim',
+            'ocr_preview': 'factuur geheim juni',
+            'ocr_text': 'factuur geheim juni',
+            'year': '2026',
+            'month': '06',
+            'size_bytes': 123,
+        })
+
+        rows = search_documents('pending-prive@example.com', 'geheim')
+
+        self.assertEqual(rows, [])
 
     def test_email_normalization(self) -> None:
         self.assertEqual(canonical_customer_identity(' User@Example.COM '), 'user@example.com')

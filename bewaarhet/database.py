@@ -11,6 +11,7 @@ from .utils import canonical_customer_identity
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER DEFAULT NULL,
     customer_identity TEXT NOT NULL DEFAULT '',
     customer_email TEXT NOT NULL,
     safe_customer_folder TEXT NOT NULL,
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_customer ON documents(customer_email);
+CREATE INDEX IF NOT EXISTS idx_documents_account ON documents(account_id);
 CREATE INDEX IF NOT EXISTS idx_documents_customer_identity ON documents(customer_identity);
 CREATE INDEX IF NOT EXISTS idx_documents_safe_customer ON documents(safe_customer_folder);
 CREATE INDEX IF NOT EXISTS idx_documents_search ON documents(customer_email, category, filename, year, month);
@@ -70,6 +72,73 @@ CREATE TABLE IF NOT EXISTS customers (
 );
 
 CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status);
+
+CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT DEFAULT NULL,
+    status TEXT NOT NULL DEFAULT 'pending_verification' CHECK(status IN ('pending_verification', 'trial', 'active', 'past_due', 'canceled', 'blocked')),
+    plan TEXT NOT NULL DEFAULT 'trial',
+    primary_email TEXT NOT NULL UNIQUE,
+    safe_account_folder TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    document_count INTEGER NOT NULL DEFAULT 0,
+    storage_used_mb REAL NOT NULL DEFAULT 0,
+    last_activity_at TEXT DEFAULT NULL,
+    trial_started_at TEXT DEFAULT NULL,
+    trial_ends_at TEXT DEFAULT NULL,
+    billing_provider TEXT DEFAULT NULL,
+    billing_customer_id TEXT DEFAULT NULL,
+    subscription_id TEXT DEFAULT NULL,
+    subscription_status TEXT NOT NULL DEFAULT 'none',
+    payment_started_at TEXT DEFAULT NULL,
+    paid_until TEXT DEFAULT NULL,
+    cancelled_at TEXT DEFAULT NULL,
+    notes TEXT DEFAULT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status);
+CREATE INDEX IF NOT EXISTS idx_accounts_primary_email ON accounts(primary_email);
+
+CREATE TABLE IF NOT EXISTS account_emails (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL DEFAULT 'hoofd',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'verified', 'disabled')),
+    can_store INTEGER NOT NULL DEFAULT 1,
+    can_search INTEGER NOT NULL DEFAULT 1,
+    can_manage INTEGER NOT NULL DEFAULT 0,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    verified_at TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(account_id) REFERENCES accounts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_emails_account ON account_emails(account_id);
+CREATE INDEX IF NOT EXISTS idx_account_emails_status ON account_emails(status);
+
+CREATE TABLE IF NOT EXISTS account_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'mollie',
+    provider_payment_id TEXT NOT NULL UNIQUE,
+    provider_customer_id TEXT DEFAULT NULL,
+    provider_subscription_id TEXT DEFAULT NULL,
+    purpose TEXT NOT NULL DEFAULT 'first_payment',
+    status TEXT NOT NULL DEFAULT 'open',
+    checkout_url TEXT DEFAULT NULL,
+    amount_value TEXT DEFAULT NULL,
+    currency TEXT DEFAULT 'EUR',
+    raw_status TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(account_id) REFERENCES accounts(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_payments_account ON account_payments(account_id);
+CREATE INDEX IF NOT EXISTS idx_account_payments_status ON account_payments(status);
 '''
 
 
@@ -84,6 +153,7 @@ def connect() -> sqlite3.Connection:
 
 
 DOCUMENT_COLUMNS = {
+    'account_id',
     'customer_identity',
     'original_filename',
     'document_date',
@@ -114,7 +184,7 @@ def _schema_update_needed(conn: sqlite3.Connection) -> bool:
         return False
     if 'documents' not in tables:
         return True
-    if not {'rate_limit_events', 'rate_limit_cooldowns', 'customers'}.issubset(tables):
+    if not {'rate_limit_events', 'rate_limit_cooldowns', 'customers', 'accounts', 'account_emails', 'account_payments'}.issubset(tables):
         return True
     customer_definition = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'customers'"
@@ -127,6 +197,8 @@ def _schema_update_needed(conn: sqlite3.Connection) -> bool:
 
 def _ensure_documents_columns(conn: sqlite3.Connection) -> None:
     existing_columns = {row['name'] for row in conn.execute("PRAGMA table_info(documents)")}
+    if 'account_id' not in existing_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN account_id INTEGER DEFAULT NULL")
     if 'customer_identity' not in existing_columns:
         conn.execute("ALTER TABLE documents ADD COLUMN customer_identity TEXT NOT NULL DEFAULT ''")
         conn.execute("UPDATE documents SET customer_identity = lower(customer_email) WHERE customer_identity = ''")
@@ -154,6 +226,19 @@ def _ensure_documents_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN missing_file INTEGER NOT NULL DEFAULT 0")
 
 
+def _ensure_accounts_columns(conn: sqlite3.Connection) -> None:
+    existing_columns = {row['name'] for row in conn.execute("PRAGMA table_info(accounts)")}
+    columns = {
+        'subscription_status': "ALTER TABLE accounts ADD COLUMN subscription_status TEXT NOT NULL DEFAULT 'none'",
+        'payment_started_at': "ALTER TABLE accounts ADD COLUMN payment_started_at TEXT DEFAULT NULL",
+        'paid_until': "ALTER TABLE accounts ADD COLUMN paid_until TEXT DEFAULT NULL",
+        'cancelled_at': "ALTER TABLE accounts ADD COLUMN cancelled_at TEXT DEFAULT NULL",
+    }
+    for column, statement in columns.items():
+        if column not in existing_columns:
+            conn.execute(statement)
+
+
 def init_db() -> None:
     if hasattr(settings, 'ensure_directories'):
         settings.ensure_directories()
@@ -179,8 +264,12 @@ def init_db() -> None:
         _ensure_documents_columns(conn)
         ensure_rate_limit_tables(conn)
         ensure_customer_table(conn)
+        ensure_account_tables(conn)
+        migrate_customers_to_accounts(conn)
+        backfill_document_account_ids(conn)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_domain_search ON documents(customer_email, domain)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_customer_identity ON documents(customer_identity)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_account ON documents(account_id)")
         conn.commit()
 
 
@@ -266,11 +355,403 @@ def ensure_customer_table(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_customers_status ON customers(status)")
 
 
+def ensure_account_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT DEFAULT NULL,
+            status TEXT NOT NULL DEFAULT 'pending_verification' CHECK(status IN ('pending_verification', 'trial', 'active', 'past_due', 'canceled', 'blocked')),
+            plan TEXT NOT NULL DEFAULT 'trial',
+            primary_email TEXT NOT NULL UNIQUE,
+            safe_account_folder TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            document_count INTEGER NOT NULL DEFAULT 0,
+            storage_used_mb REAL NOT NULL DEFAULT 0,
+            last_activity_at TEXT DEFAULT NULL,
+            trial_started_at TEXT DEFAULT NULL,
+            trial_ends_at TEXT DEFAULT NULL,
+            billing_provider TEXT DEFAULT NULL,
+            billing_customer_id TEXT DEFAULT NULL,
+            subscription_id TEXT DEFAULT NULL,
+            subscription_status TEXT NOT NULL DEFAULT 'none',
+            payment_started_at TEXT DEFAULT NULL,
+            paid_until TEXT DEFAULT NULL,
+            cancelled_at TEXT DEFAULT NULL,
+            notes TEXT DEFAULT NULL
+        )
+        '''
+    )
+    _ensure_accounts_columns(conn)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_primary_email ON accounts(primary_email)")
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS account_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            label TEXT NOT NULL DEFAULT 'hoofd',
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'verified', 'disabled')),
+            can_store INTEGER NOT NULL DEFAULT 1,
+            can_search INTEGER NOT NULL DEFAULT 1,
+            can_manage INTEGER NOT NULL DEFAULT 0,
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            verified_at TEXT DEFAULT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(account_id) REFERENCES accounts(id)
+        )
+        '''
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_account_emails_account ON account_emails(account_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_account_emails_status ON account_emails(status)")
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS account_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'mollie',
+            provider_payment_id TEXT NOT NULL UNIQUE,
+            provider_customer_id TEXT DEFAULT NULL,
+            provider_subscription_id TEXT DEFAULT NULL,
+            purpose TEXT NOT NULL DEFAULT 'first_payment',
+            status TEXT NOT NULL DEFAULT 'open',
+            checkout_url TEXT DEFAULT NULL,
+            amount_value TEXT DEFAULT NULL,
+            currency TEXT DEFAULT 'EUR',
+            raw_status TEXT DEFAULT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(account_id) REFERENCES accounts(id)
+        )
+        '''
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_account_payments_account ON account_payments(account_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_account_payments_status ON account_payments(status)")
+
+
+def migrate_customers_to_accounts(conn: sqlite3.Connection) -> None:
+    ensure_customer_table(conn)
+    ensure_account_tables(conn)
+    rows = list(conn.execute('SELECT * FROM customers ORDER BY id'))
+    for row in rows:
+        email = canonical_customer_identity(row['email'])
+        if not email:
+            continue
+        account = conn.execute('SELECT * FROM accounts WHERE primary_email = ?', (email,)).fetchone()
+        safe_folder = email.replace('@', '_at_')
+        if account is None:
+            conn.execute(
+                '''
+                INSERT INTO accounts
+                (name, status, primary_email, safe_account_folder, created_at, updated_at,
+                 document_count, storage_used_mb, last_activity_at, trial_started_at, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    row['name'], row['status'], email, safe_folder, row['created_at'], row['updated_at'],
+                    row['document_count'], row['storage_used_mb'], row['last_activity_at'],
+                    row['trial_started_at'], row['notes'],
+                ),
+            )
+            account_id = int(conn.execute('SELECT last_insert_rowid()').fetchone()[0])
+        else:
+            account_id = int(account['id'])
+        email_row = conn.execute('SELECT * FROM account_emails WHERE email = ?', (email,)).fetchone()
+        if email_row is None:
+            email_status = 'verified' if row['status'] in {'trial', 'active'} else 'pending'
+            conn.execute(
+                '''
+                INSERT INTO account_emails
+                (account_id, email, label, status, can_store, can_search, can_manage, is_primary, verified_at)
+                VALUES (?, ?, 'hoofd', ?, 1, 1, 1, 1, CASE WHEN ? = 'verified' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                ''',
+                (account_id, email, email_status, email_status),
+            )
+
+
+def backfill_document_account_ids(conn: sqlite3.Connection) -> None:
+    _ensure_documents_columns(conn)
+    ensure_account_tables(conn)
+    rows = list(conn.execute(
+        '''
+        SELECT d.id, d.customer_email
+        FROM documents d
+        WHERE d.account_id IS NULL
+        '''
+    ))
+    for row in rows:
+        email = canonical_customer_identity(row['customer_email'])
+        email_row = conn.execute('SELECT account_id FROM account_emails WHERE email = ?', (email,)).fetchone()
+        if email_row is None:
+            continue
+        conn.execute('UPDATE documents SET account_id = ? WHERE id = ?', (email_row['account_id'], row['id']))
+
+
 def get_customer(email: str) -> sqlite3.Row | None:
     customer_email = canonical_customer_identity(email)
     with closing(connect()) as conn:
         ensure_customer_table(conn)
         return conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
+
+
+def get_account_for_email(email: str) -> sqlite3.Row | None:
+    customer_email = canonical_customer_identity(email)
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        return conn.execute(
+            '''
+            SELECT a.*
+            FROM accounts a
+            JOIN account_emails ae ON ae.account_id = a.id
+            WHERE ae.email = ?
+            ''',
+            (customer_email,),
+        ).fetchone()
+
+
+def get_account_by_id(account_id: int) -> sqlite3.Row | None:
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        return conn.execute('SELECT * FROM accounts WHERE id = ?', (account_id,)).fetchone()
+
+
+def set_account_billing_status(
+    account_id: int,
+    *,
+    status: str | None = None,
+    subscription_status: str | None = None,
+    billing_provider: str | None = None,
+    billing_customer_id: str | None = None,
+    subscription_id: str | None = None,
+    payment_started: bool = False,
+    paid_until: str | None = None,
+    cancelled: bool = False,
+    notes: str | None = None,
+) -> sqlite3.Row:
+    if status and status not in {'pending_verification', 'trial', 'active', 'past_due', 'canceled', 'blocked'}:
+        raise ValueError(f'unsupported account status: {status}')
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        conn.execute(
+            '''
+            UPDATE accounts
+            SET status = COALESCE(?, status),
+                subscription_status = COALESCE(?, subscription_status),
+                billing_provider = COALESCE(?, billing_provider),
+                billing_customer_id = COALESCE(?, billing_customer_id),
+                subscription_id = COALESCE(?, subscription_id),
+                payment_started_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE payment_started_at END,
+                paid_until = COALESCE(?, paid_until),
+                cancelled_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE cancelled_at END,
+                notes = COALESCE(?, notes),
+                updated_at = CURRENT_TIMESTAMP,
+                last_activity_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            ''',
+            (
+                status, subscription_status, billing_provider, billing_customer_id, subscription_id,
+                int(payment_started), paid_until, int(cancelled), notes, account_id,
+            ),
+        )
+        if status in {'trial', 'active', 'blocked'}:
+            account = conn.execute('SELECT primary_email FROM accounts WHERE id = ?', (account_id,)).fetchone()
+            if account is not None:
+                legacy_status = status
+                conn.execute(
+                    '''
+                    UPDATE customers
+                    SET status = ?,
+                        updated_at = CURRENT_TIMESTAMP,
+                        last_activity_at = CURRENT_TIMESTAMP
+                    WHERE email = ?
+                    ''',
+                    (legacy_status, account['primary_email']),
+                )
+        conn.commit()
+        row = conn.execute('SELECT * FROM accounts WHERE id = ?', (account_id,)).fetchone()
+        if row is None:
+            raise RuntimeError('account billing update failed')
+        return row
+
+
+def record_account_payment(
+    *,
+    account_id: int,
+    provider_payment_id: str,
+    provider_customer_id: str | None = None,
+    provider_subscription_id: str | None = None,
+    purpose: str = 'first_payment',
+    status: str = 'open',
+    checkout_url: str | None = None,
+    amount_value: str | None = None,
+    currency: str = 'EUR',
+    raw_status: str | None = None,
+) -> sqlite3.Row:
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        conn.execute(
+            '''
+            INSERT INTO account_payments
+            (account_id, provider, provider_payment_id, provider_customer_id, provider_subscription_id,
+             purpose, status, checkout_url, amount_value, currency, raw_status)
+            VALUES (?, 'mollie', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(provider_payment_id) DO UPDATE SET
+                provider_customer_id = COALESCE(excluded.provider_customer_id, account_payments.provider_customer_id),
+                provider_subscription_id = COALESCE(excluded.provider_subscription_id, account_payments.provider_subscription_id),
+                status = excluded.status,
+                checkout_url = COALESCE(excluded.checkout_url, account_payments.checkout_url),
+                amount_value = COALESCE(excluded.amount_value, account_payments.amount_value),
+                currency = COALESCE(excluded.currency, account_payments.currency),
+                raw_status = COALESCE(excluded.raw_status, account_payments.raw_status),
+                updated_at = CURRENT_TIMESTAMP
+            ''',
+            (
+                account_id, provider_payment_id, provider_customer_id, provider_subscription_id,
+                purpose, status, checkout_url, amount_value, currency, raw_status,
+            ),
+        )
+        conn.commit()
+        row = conn.execute('SELECT * FROM account_payments WHERE provider_payment_id = ?', (provider_payment_id,)).fetchone()
+        if row is None:
+            raise RuntimeError('payment record failed')
+        return row
+
+
+def get_account_payment(provider_payment_id: str) -> sqlite3.Row | None:
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        return conn.execute('SELECT * FROM account_payments WHERE provider_payment_id = ?', (provider_payment_id,)).fetchone()
+
+
+def update_account_payment_status(
+    provider_payment_id: str,
+    *,
+    status: str,
+    raw_status: str | None = None,
+    provider_subscription_id: str | None = None,
+) -> sqlite3.Row | None:
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        conn.execute(
+            '''
+            UPDATE account_payments
+            SET status = ?,
+                raw_status = COALESCE(?, raw_status),
+                provider_subscription_id = COALESCE(?, provider_subscription_id),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE provider_payment_id = ?
+            ''',
+            (status, raw_status, provider_subscription_id, provider_payment_id),
+        )
+        conn.commit()
+        return conn.execute('SELECT * FROM account_payments WHERE provider_payment_id = ?', (provider_payment_id,)).fetchone()
+
+
+def extend_account_trial(email: str, trial_ends_at: str, *, notes: str | None = None) -> sqlite3.Row:
+    account = get_account_for_email(email)
+    if account is None:
+        raise ValueError('account not found')
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        conn.execute(
+            '''
+            UPDATE accounts
+            SET status = 'trial',
+                trial_started_at = COALESCE(trial_started_at, CURRENT_TIMESTAMP),
+                trial_ends_at = ?,
+                notes = COALESCE(?, notes),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            ''',
+            (trial_ends_at, notes, account['id']),
+        )
+        conn.commit()
+        row = conn.execute('SELECT * FROM accounts WHERE id = ?', (account['id'],)).fetchone()
+        if row is None:
+            raise RuntimeError('trial extension failed')
+        return row
+
+
+def get_account_email(email: str) -> sqlite3.Row | None:
+    customer_email = canonical_customer_identity(email)
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        return conn.execute('SELECT * FROM account_emails WHERE email = ?', (customer_email,)).fetchone()
+
+
+def account_context_for_email(email: str) -> dict | None:
+    customer_email = canonical_customer_identity(email)
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        row = conn.execute(
+            '''
+            SELECT
+                a.id AS account_id,
+                a.status AS account_status,
+                a.primary_email,
+                a.safe_account_folder,
+                a.document_count,
+                a.storage_used_mb,
+                ae.email AS sender_email,
+                ae.status AS email_status,
+                ae.label AS email_label,
+                ae.can_store,
+                ae.can_search,
+                ae.can_manage
+            FROM accounts a
+            JOIN account_emails ae ON ae.account_id = a.id
+            WHERE ae.email = ?
+            ''',
+            (customer_email,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def add_account_email(
+    owner_email: str,
+    new_email: str,
+    *,
+    label: str = 'extra',
+    can_store: bool = True,
+    can_search: bool = True,
+    can_manage: bool = False,
+) -> sqlite3.Row:
+    owner_identity = canonical_customer_identity(owner_email)
+    new_identity = canonical_customer_identity(new_email)
+    if not owner_identity or not new_identity:
+        raise ValueError('owner_email and new_email are required')
+    with closing(connect()) as conn:
+        ensure_account_tables(conn)
+        owner = conn.execute(
+            '''
+            SELECT a.*
+            FROM accounts a
+            JOIN account_emails ae ON ae.account_id = a.id
+            WHERE ae.email = ? AND ae.status = 'verified' AND ae.can_manage = 1
+            ''',
+            (owner_identity,),
+        ).fetchone()
+        if owner is None:
+            raise ValueError('owner email is not allowed to manage this account')
+        existing = conn.execute('SELECT * FROM account_emails WHERE email = ?', (new_identity,)).fetchone()
+        if existing is not None:
+            raise ValueError('email address already belongs to an account')
+        conn.execute(
+            '''
+            INSERT INTO account_emails
+            (account_id, email, label, status, can_store, can_search, can_manage, is_primary)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, 0)
+            ''',
+            (owner['id'], new_identity, label, int(can_store), int(can_search), int(can_manage)),
+        )
+        conn.commit()
+        row = conn.execute('SELECT * FROM account_emails WHERE email = ?', (new_identity,)).fetchone()
+        if row is None:
+            raise RuntimeError('account email creation failed')
+        return row
 
 
 def ensure_customer(email: str, *, name: str | None = None) -> tuple[sqlite3.Row, bool]:
@@ -279,9 +760,49 @@ def ensure_customer(email: str, *, name: str | None = None) -> tuple[sqlite3.Row
         raise ValueError('customer email is required')
     with closing(connect()) as conn:
         ensure_customer_table(conn)
+        ensure_account_tables(conn)
         existing = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
         if existing:
+            migrate_customers_to_accounts(conn)
+            conn.commit()
             return existing, False
+        existing_account_email = conn.execute(
+            '''
+            SELECT a.status, a.name, a.document_count, a.storage_used_mb, a.last_activity_at, a.trial_started_at, ae.status AS email_status
+            FROM account_emails ae
+            JOIN accounts a ON a.id = ae.account_id
+            WHERE ae.email = ?
+            ''',
+            (customer_email,),
+        ).fetchone()
+        if existing_account_email is not None:
+            status = str(existing_account_email['status'] or 'pending_verification')
+            if existing_account_email['email_status'] == 'pending':
+                status = 'pending_verification'
+            if existing_account_email['email_status'] == 'disabled':
+                status = 'blocked'
+            legacy_status = status if status in {'pending_verification', 'trial', 'active', 'blocked'} else 'blocked'
+            conn.execute(
+                '''
+                INSERT INTO customers
+                (email, name, status, document_count, storage_used_mb, last_activity_at, trial_started_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    customer_email,
+                    existing_account_email['name'],
+                    legacy_status,
+                    existing_account_email['document_count'],
+                    existing_account_email['storage_used_mb'],
+                    existing_account_email['last_activity_at'],
+                    existing_account_email['trial_started_at'],
+                ),
+            )
+            conn.commit()
+            created_from_account = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
+            if created_from_account is None:
+                raise RuntimeError('customer compatibility creation failed')
+            return created_from_account, False
         conn.execute(
             '''
             INSERT INTO customers
@@ -289,6 +810,24 @@ def ensure_customer(email: str, *, name: str | None = None) -> tuple[sqlite3.Row
             VALUES (?, ?, 'pending_verification', NULL, CURRENT_TIMESTAMP)
             ''',
             (customer_email, name),
+        )
+        safe_folder = customer_email.replace('@', '_at_')
+        conn.execute(
+            '''
+            INSERT INTO accounts
+            (name, status, primary_email, safe_account_folder, last_activity_at)
+            VALUES (?, 'pending_verification', ?, ?, CURRENT_TIMESTAMP)
+            ''',
+            (name, customer_email, safe_folder),
+        )
+        account_id = int(conn.execute('SELECT last_insert_rowid()').fetchone()[0])
+        conn.execute(
+            '''
+            INSERT INTO account_emails
+            (account_id, email, label, status, can_store, can_search, can_manage, is_primary)
+            VALUES (?, ?, 'hoofd', 'pending', 1, 1, 1, 1)
+            ''',
+            (account_id, customer_email),
         )
         conn.commit()
         created = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
@@ -298,11 +837,13 @@ def ensure_customer(email: str, *, name: str | None = None) -> tuple[sqlite3.Row
 
 
 def update_customer_status(email: str, status: str, *, name: str | None = None, notes: str | None = None) -> sqlite3.Row:
-    if status not in {'pending_verification', 'trial', 'active', 'blocked'}:
+    if status not in {'pending_verification', 'trial', 'active', 'past_due', 'canceled', 'blocked'}:
         raise ValueError(f'unsupported customer status: {status}')
+    legacy_customer_status = status if status in {'pending_verification', 'trial', 'active', 'blocked'} else 'blocked'
     customer_email = canonical_customer_identity(email)
     with closing(connect()) as conn:
         ensure_customer_table(conn)
+        ensure_account_tables(conn)
         conn.execute(
             '''
             INSERT INTO customers (email, name, status, trial_started_at, last_activity_at)
@@ -319,8 +860,47 @@ def update_customer_status(email: str, status: str, *, name: str | None = None, 
                     ELSE customers.trial_started_at
                 END
             ''',
-            (customer_email, name, status, status, notes),
+            (customer_email, name, legacy_customer_status, legacy_customer_status, notes),
         )
+        safe_folder = customer_email.replace('@', '_at_')
+        conn.execute(
+            '''
+            INSERT INTO accounts (name, status, primary_email, safe_account_folder, last_activity_at, trial_started_at, notes)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CASE WHEN ? = 'trial' THEN CURRENT_TIMESTAMP ELSE NULL END, ?)
+            ON CONFLICT(primary_email) DO UPDATE SET
+                status = excluded.status,
+                name = COALESCE(excluded.name, accounts.name),
+                notes = COALESCE(excluded.notes, accounts.notes),
+                updated_at = CURRENT_TIMESTAMP,
+                last_activity_at = CURRENT_TIMESTAMP,
+                trial_started_at = CASE
+                    WHEN excluded.status = 'trial' AND accounts.trial_started_at IS NULL THEN CURRENT_TIMESTAMP
+                    WHEN excluded.status = 'pending_verification' THEN NULL
+                    ELSE accounts.trial_started_at
+                END
+            ''',
+            (name, status, customer_email, safe_folder, status, notes),
+        )
+        account = conn.execute('SELECT * FROM accounts WHERE primary_email = ?', (customer_email,)).fetchone()
+        if account:
+            email_status = 'verified' if status in {'trial', 'active', 'past_due', 'canceled'} else 'pending'
+            if status == 'blocked':
+                email_status = 'disabled'
+            conn.execute(
+                '''
+                INSERT INTO account_emails
+                (account_id, email, label, status, can_store, can_search, can_manage, is_primary, verified_at)
+                VALUES (?, ?, 'hoofd', ?, 1, 1, 1, 1, CASE WHEN ? = 'verified' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                ON CONFLICT(email) DO UPDATE SET
+                    status = excluded.status,
+                    updated_at = CURRENT_TIMESTAMP,
+                    verified_at = CASE
+                        WHEN excluded.status = 'verified' AND account_emails.verified_at IS NULL THEN CURRENT_TIMESTAMP
+                        ELSE account_emails.verified_at
+                    END
+                ''',
+                (account['id'], customer_email, email_status, email_status),
+            )
         conn.commit()
         row = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
         if row is None:
@@ -332,25 +912,67 @@ def activate_pending_customer(email: str) -> sqlite3.Row:
     customer_email = canonical_customer_identity(email)
     with closing(connect()) as conn:
         ensure_customer_table(conn)
+        ensure_account_tables(conn)
+        trial_days = max(1, int(getattr(settings, 'trial_days', 14)))
         row = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
-        if row is None or row['status'] != 'pending_verification':
+        email_row = conn.execute('SELECT * FROM account_emails WHERE email = ?', (customer_email,)).fetchone()
+        account = None
+        if email_row is not None:
+            account = conn.execute('SELECT * FROM accounts WHERE id = ?', (email_row['account_id'],)).fetchone()
+        if row is None and email_row is None:
             raise ValueError('activation token is invalid or already used')
-        conn.execute(
-            '''
-            UPDATE customers
-            SET status = 'trial',
-                trial_started_at = COALESCE(trial_started_at, CURRENT_TIMESTAMP),
-                updated_at = CURRENT_TIMESTAMP,
-                last_activity_at = CURRENT_TIMESTAMP
-            WHERE email = ? AND status = 'pending_verification'
-            ''',
-            (customer_email,),
-        )
+        if (
+            (row is None or row['status'] != 'pending_verification')
+            and (email_row is None or email_row['status'] != 'pending')
+        ):
+            raise ValueError('activation token is invalid or already used')
+        if row is not None and row['status'] == 'pending_verification':
+            conn.execute(
+                '''
+                UPDATE customers
+                SET status = 'trial',
+                    trial_started_at = COALESCE(trial_started_at, CURRENT_TIMESTAMP),
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_activity_at = CURRENT_TIMESTAMP
+                WHERE email = ? AND status = 'pending_verification'
+                ''',
+                (customer_email,),
+            )
+        if email_row is not None and email_row['status'] == 'pending':
+            conn.execute(
+                '''
+                UPDATE account_emails
+                SET status = 'verified',
+                    verified_at = COALESCE(verified_at, CURRENT_TIMESTAMP),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE email = ? AND status = 'pending'
+                ''',
+                (customer_email,),
+            )
+        if account is not None and account['status'] == 'pending_verification':
+            conn.execute(
+                '''
+                UPDATE accounts
+                SET status = 'trial',
+                    trial_started_at = COALESCE(trial_started_at, CURRENT_TIMESTAMP),
+                    trial_ends_at = COALESCE(trial_ends_at, datetime('now', '+' || ? || ' days')),
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_activity_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'pending_verification'
+                ''',
+                (trial_days, account['id']),
+            )
         conn.commit()
         activated = conn.execute('SELECT * FROM customers WHERE email = ?', (customer_email,)).fetchone()
-        if activated is None or activated['status'] != 'trial':
-            raise RuntimeError('customer activation failed')
-        return activated
+        if activated is not None:
+            return activated
+        email_row = conn.execute('SELECT * FROM account_emails WHERE email = ?', (customer_email,)).fetchone()
+        if email_row is None or email_row['status'] != 'verified':
+            raise RuntimeError('account email activation failed')
+        account = conn.execute('SELECT * FROM accounts WHERE id = ?', (email_row['account_id'],)).fetchone()
+        if account is None:
+            raise RuntimeError('account activation failed')
+        return account
 
 
 def list_customers(*, status: str | None = None, limit: int = 100) -> list[sqlite3.Row]:
@@ -366,6 +988,7 @@ def record_customer_document(email: str, size_bytes: int) -> None:
     storage_mb = max(0, size_bytes) / (1024 * 1024)
     with closing(connect()) as conn:
         ensure_customer_table(conn)
+        ensure_account_tables(conn)
         conn.execute(
             '''
             UPDATE customers
@@ -377,22 +1000,41 @@ def record_customer_document(email: str, size_bytes: int) -> None:
             ''',
             (storage_mb, customer_email),
         )
+        email_row = conn.execute('SELECT account_id FROM account_emails WHERE email = ?', (customer_email,)).fetchone()
+        if email_row is not None:
+            conn.execute(
+                '''
+                UPDATE accounts
+                SET document_count = document_count + 1,
+                    storage_used_mb = storage_used_mb + ?,
+                    last_activity_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                ''',
+                (storage_mb, email_row['account_id']),
+            )
         conn.commit()
 
 
 def add_document(record: dict) -> None:
     customer_identity = canonical_customer_identity(record.get('customer_identity') or record['customer_email'])
+    account_id = record.get('account_id')
+    if account_id is None:
+        context = account_context_for_email(customer_identity)
+        if context:
+            account_id = context['account_id']
     with closing(connect()) as conn:
         _ensure_documents_columns(conn)
         conn.execute(
             '''
             INSERT OR REPLACE INTO documents
-            (customer_identity, customer_email, safe_customer_folder, category, filename, date_received,
+            (account_id, customer_identity, customer_email, safe_customer_folder, category, filename, date_received,
              dropbox_path, original_filename, document_date, domain, supplier, purpose, title,
              ocr_preview, ocr_text, year, month)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
+                account_id,
                 customer_identity,
                 canonical_customer_identity(record['customer_email']), record['safe_customer_folder'], record['category'],
                 record['filename'], record['date_received'], record['dropbox_path'],
@@ -496,9 +1138,23 @@ def _expand_search_terms(terms: list[str]) -> list[str]:
 def search_documents(customer_email: str, query: str, limit: int = 10) -> list[sqlite3.Row]:
     terms = _expand_search_terms(_query_terms(query))
     customer_identity = canonical_customer_identity(customer_email)
+    context = account_context_for_email(customer_identity)
+    account_id = None
+    if (
+        context
+        and context.get('email_status') == 'verified'
+        and context.get('account_status') in {'trial', 'active', 'past_due'}
+        and int(context.get('can_search') or 0)
+    ):
+        account_id = context['account_id']
 
     search_parts = []
-    params: list[str] = [customer_identity]
+    if account_id is not None:
+        params: list[str | int] = [account_id, customer_identity]
+        ownership_sql = '(account_id = ? OR lower(COALESCE(NULLIF(customer_identity, \'\'), customer_email)) = ?)'
+    else:
+        params = [customer_identity]
+        ownership_sql = 'lower(COALESCE(NULLIF(customer_identity, \'\'), customer_email)) = ?'
 
     for term in terms:
         like = f'%{term}%'
@@ -509,7 +1165,7 @@ def search_documents(customer_email: str, query: str, limit: int = 10) -> list[s
 
     sql = f'''
         SELECT * FROM documents
-        WHERE lower(COALESCE(NULLIF(customer_identity, ''), customer_email)) = ?
+        WHERE {ownership_sql}
         AND COALESCE(missing_file, 0) = 0
         AND (
             {' OR '.join(search_parts)}

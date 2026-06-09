@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Dict, List
 import re
 
@@ -7,6 +8,14 @@ from .config import settings
 from .utils import is_note_like_content
 
 CATEGORIES = {'facturen', 'bonnen', 'contracten', 'belasting', 'notities', 'overig'}
+
+
+@dataclass(frozen=True)
+class ClassificationResult:
+    category: str
+    confidence: float
+    reason: str
+    method: str = 'rules'
 
 
 # Weighted keyword lists. Strong > medium > weak.
@@ -21,8 +30,8 @@ WEIGHTS = {
         'weak': ['btw', 'iban', 'kvk', 'klantnummer']
     },
     'bonnen': {
-        'strong': ['kassabon', 'pinbon', 'bonnetje', 'receipt', 'transactie'],
-        'medium': ['betaalautomaat', 'bedankt voor uw bezoek', 'contactloos'],
+        'strong': ['kassabon', 'pinbon', 'bonnetje', 'receipt', 'transactie', 'aankoopbewijs'],
+        'medium': ['betaalautomaat', 'bedankt voor uw bezoek', 'contactloos', 'ordernummer', 'besteldatum'],
         'weak': []
     },
     'contracten': {
@@ -68,7 +77,34 @@ def _has_invoice_evidence(haystack: str) -> bool:
         'btw-bedrag',
         'subtotal',
         'subtotaal',
-        'iban',
+    ]
+    return any(_count_matches(haystack, term) for term in evidence_terms)
+
+
+def _has_receipt_evidence(haystack: str) -> bool:
+    evidence_terms = [
+        'kassabon',
+        'pinbon',
+        'bonnetje',
+        'aankoopbewijs',
+        'receipt',
+        'contactloos betaald',
+        'bedankt voor uw bezoek',
+    ]
+    return any(_count_matches(haystack, term) for term in evidence_terms)
+
+
+def _has_contract_evidence(haystack: str) -> bool:
+    evidence_terms = [
+        'contract',
+        'overeenkomst',
+        'algemene voorwaarden',
+        'looptijd',
+        'handtekening',
+        'ondertekening',
+        'clausule',
+        'huurovereenkomst',
+        'contractnummer',
     ]
     return any(_count_matches(haystack, term) for term in evidence_terms)
 
@@ -76,7 +112,14 @@ def _has_invoice_evidence(haystack: str) -> bool:
 def classify_rules(text: str, filename: str = '', subject: str = '', snippet: str = '') -> str:
     haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
 
-    if is_note_like_content(text, subject, filename) or is_note_like_content(snippet, subject, filename):
+    if (
+        (is_note_like_content(text, subject, filename) or is_note_like_content(snippet, subject, filename))
+        and not _has_receipt_evidence(haystack)
+        and not _has_invoice_evidence(haystack)
+    ):
+        return 'notities'
+
+    if 'recept' in haystack and any(term in haystack for term in ['ingredient', 'ingredienten', 'ingrediënten', 'bloem', 'kaneel', 'oven']):
         return 'notities'
 
     advice_signals = [
@@ -158,6 +201,8 @@ def classify_rules(text: str, filename: str = '', subject: str = '', snippet: st
 
     if top_cat == 'facturen' and not _has_invoice_evidence(haystack):
         return 'twijfel'
+    if top_cat == 'contracten' and not _has_contract_evidence(haystack):
+        return 'twijfel'
 
     # If top is not sufficiently stronger than second, return 'twijfel'
     if top_score - second_score < 2:
@@ -207,3 +252,79 @@ def classify_document(text: str, filename: str = '', subject: str = '', snippet:
     if category != 'twijfel':
         return category
     return classify_openai(text, filename, subject, snippet)
+
+
+def classify_document_with_reason(text: str, filename: str = '', subject: str = '', snippet: str = '') -> ClassificationResult:
+    haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
+
+    if (
+        (is_note_like_content(text, subject, filename) or is_note_like_content(snippet, subject, filename))
+        and not _has_receipt_evidence(haystack)
+        and not _has_invoice_evidence(haystack)
+    ):
+        return ClassificationResult('notities', 0.92, 'note-like content detected')
+    if 'recept' in haystack and any(term in haystack for term in ['ingredient', 'ingredienten', 'ingrediënten', 'bloem', 'kaneel', 'oven']):
+        return ClassificationResult('notities', 0.9, 'recipe/note content detected')
+
+    scores: Dict[str, int] = {c: 0 for c in CATEGORIES}
+    weight_map = {'strong': 3, 'medium': 2, 'weak': 1}
+    matched: dict[str, list[str]] = {category: [] for category in CATEGORIES}
+
+    for category, groups in WEIGHTS.items():
+        for strength, phrases in groups.items():
+            weight = weight_map.get(strength, 1)
+            for phrase in phrases:
+                matches = _count_matches(haystack, phrase)
+                if matches:
+                    scores[category] += matches * weight
+                    matched[category].append(f'{strength}:{phrase}')
+
+    if (_count_matches(haystack, 'nota') or _count_matches(haystack, 'huurnota')) and 'belastingdienst' not in haystack:
+        scores['facturen'] += 2
+        matched['facturen'].append('boost:nota')
+
+    if 'belastingdienst' in haystack or 'dienst toeslagen' in haystack:
+        if any(sig in haystack for sig in ['betalingsregeling', 'aanslag', 'inkomstenbelasting', 'loonheffing', 'omzetbelasting', 'aangifteformulier', 'betaalinformatie', 'betalingsherinnering', 'belastingaanslag']):
+            scores['belasting'] += 5
+            matched['belasting'].append('boost:belastingdienst context')
+
+    invoice_document_signals = [
+        'invoice', 'invoice#', 'invoice #', 'invoice number', 'factuur',
+        'factuurnummer', 'factuurdatum', 'annual subscription fee',
+        'subscription fee', 'due date',
+    ]
+    receipt_only_signals = ['kassabon', 'pinbon', 'bonnetje', 'betaalautomaat', 'contactloos']
+    if any(_count_matches(haystack, signal) for signal in invoice_document_signals):
+        scores['facturen'] += 4
+        matched['facturen'].append('boost:invoice document signal')
+        if not any(signal in haystack for signal in receipt_only_signals):
+            scores['bonnen'] = max(0, scores['bonnen'] - 3)
+
+    sorted_scores = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    top_category, top_score = sorted_scores[0]
+    second_category, second_score = sorted_scores[1]
+
+    if top_score == 0:
+        fallback = classify_openai(text, filename, subject, snippet)
+        return ClassificationResult(fallback, 0.35 if fallback != 'overig' else 0.2, 'no strong rule evidence; fallback used', 'fallback')
+
+    if top_category == 'facturen' and not _has_invoice_evidence(haystack):
+        fallback = classify_openai(text, filename, subject, snippet)
+        return ClassificationResult(fallback, 0.4 if fallback != 'overig' else 0.25, 'invoice score lacked invoice evidence; fallback used', 'fallback')
+    if top_category == 'contracten' and not _has_contract_evidence(haystack):
+        fallback = classify_openai(text, filename, subject, snippet)
+        return ClassificationResult(fallback, 0.4 if fallback != 'overig' else 0.25, 'contract score lacked contract evidence; fallback used', 'fallback')
+
+    margin = top_score - second_score
+    if margin < 2:
+        fallback = classify_openai(text, filename, subject, snippet)
+        return ClassificationResult(
+            fallback,
+            0.45 if fallback != 'overig' else 0.3,
+            f'classification ambiguous: {top_category}={top_score}, {second_category}={second_score}',
+            'fallback',
+        )
+
+    confidence = min(0.98, 0.55 + (top_score * 0.04) + (margin * 0.03))
+    reason_terms = ', '.join(matched[top_category][:5]) or f'score {top_score}'
+    return ClassificationResult(top_category, round(confidence, 2), f'{top_category} won with score {top_score}; evidence: {reason_terms}')

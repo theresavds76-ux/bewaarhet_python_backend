@@ -7,8 +7,19 @@ from pathlib import Path
 from .backup import create_backup, list_backups, restore_backup
 from .cleanup import build_cleanup_report, cleanup_orphaned, cleanup_testdata, reset_dev_environment
 from .config import settings
-from .customer_onboarding import activate_customer_from_token
-from .database import ensure_customer, get_customer, list_customers, update_customer_status
+from .billing import billing_link, send_payment_request_email
+from .customer_onboarding import activate_customer_from_token, activation_link
+from .database import (
+    account_context_for_email,
+    add_account_email,
+    ensure_customer,
+    extend_account_trial,
+    get_account_for_email,
+    get_customer,
+    list_customers,
+    set_account_billing_status,
+    update_customer_status,
+)
 from .maintenance import run_dropbox_consistency_check
 from .utils import canonical_customer_identity, sanitize_for_log
 
@@ -108,11 +119,17 @@ def _activate_customer(args: argparse.Namespace) -> None:
 
 
 def _verify_customer(args: argparse.Namespace) -> None:
-    customer = activate_customer_from_token(args.token)
+    result = activate_customer_from_token(args.token)
     if args.notes:
-        customer = update_customer_status(customer['email'], 'trial', notes=args.notes)
-    print('Customer e-mailadres bevestigd. Trial gestart.')
-    _print_customer(customer)
+        try:
+            result = update_customer_status(result['email'], 'trial', notes=args.notes)
+        except (KeyError, IndexError):
+            pass
+    print('E-mailadres bevestigd.')
+    try:
+        _print_customer(result)
+    except (KeyError, IndexError):
+        print(f"account_id={result['id']} | status={result['status']} | primary_email={sanitize_for_log(result['primary_email'])}")
 
 
 def _block_customer(args: argparse.Namespace) -> None:
@@ -123,6 +140,101 @@ def _block_customer(args: argparse.Namespace) -> None:
 
 def _customer_info(args: argparse.Namespace) -> None:
     _print_customer(get_customer(args.email))
+
+
+def _print_account_context(email: str) -> None:
+    context = account_context_for_email(email)
+    if not context:
+        print('Account niet gevonden voor dit e-mailadres.')
+        return
+    print(
+        f"account_id={context['account_id']}"
+        f" | primary_email={sanitize_for_log(context['primary_email'])}"
+        f" | account_status={context['account_status']}"
+        f" | email={sanitize_for_log(context['sender_email'])}"
+        f" | email_status={context['email_status']}"
+        f" | label={context['email_label']}"
+        f" | can_store={context['can_store']}"
+        f" | can_search={context['can_search']}"
+        f" | can_manage={context['can_manage']}"
+        f" | documents={context['document_count']}"
+        f" | storage_mb={float(context['storage_used_mb'] or 0):.3f}"
+    )
+
+
+def _account_info(args: argparse.Namespace) -> None:
+    _print_account_context(args.email)
+
+
+def _add_account_email(args: argparse.Namespace) -> None:
+    row = add_account_email(
+        args.owner_email,
+        args.email,
+        label=args.label,
+        can_store=not args.no_store,
+        can_search=not args.no_search,
+        can_manage=args.can_manage,
+    )
+    account = get_account_for_email(args.email)
+    print('Extra e-mailadres toegevoegd; verificatie is nog nodig.')
+    if account:
+        print(f"account_id={account['id']} | primary_email={sanitize_for_log(account['primary_email'])}")
+    print(
+        f"email={sanitize_for_log(row['email'])}"
+        f" | label={row['label']}"
+        f" | status={row['status']}"
+        f" | can_store={row['can_store']}"
+        f" | can_search={row['can_search']}"
+        f" | can_manage={row['can_manage']}"
+    )
+    if args.show_activation_link:
+        print(f"activation_link={sanitize_for_log(activation_link(args.email))}")
+
+
+def _send_payment_request(args: argparse.Namespace) -> None:
+    if args.print_link_only:
+        print(f"billing_link={sanitize_for_log(billing_link(args.email))}")
+        return
+    send_payment_request_email(args.email)
+    print(f"Betaalverzoek verzonden naar {sanitize_for_log(args.email)}.")
+
+
+def _mark_account_paid(args: argparse.Namespace) -> None:
+    account = get_account_for_email(args.email)
+    if account is None:
+        raise SystemExit('Account niet gevonden.')
+    updated = set_account_billing_status(
+        int(account['id']),
+        status='active',
+        subscription_status='manual_paid',
+        billing_provider='manual',
+        subscription_id=args.subscription_id,
+        paid_until=args.paid_until,
+        notes=args.notes,
+    )
+    print('Account handmatig op betaald/active gezet.')
+    print(f"account_id={updated['id']} | status={updated['status']} | subscription_status={updated['subscription_status']}")
+
+
+def _extend_trial(args: argparse.Namespace) -> None:
+    updated = extend_account_trial(args.email, args.trial_ends_at, notes=args.notes)
+    print('Trial verlengd/reset.')
+    print(f"account_id={updated['id']} | status={updated['status']} | trial_ends_at={updated['trial_ends_at']}")
+
+
+def _cancel_account(args: argparse.Namespace) -> None:
+    account = get_account_for_email(args.email)
+    if account is None:
+        raise SystemExit('Account niet gevonden.')
+    updated = set_account_billing_status(
+        int(account['id']),
+        status='canceled',
+        subscription_status='canceled',
+        cancelled=True,
+        notes=args.notes,
+    )
+    print('Account op canceled gezet.')
+    print(f"account_id={updated['id']} | status={updated['status']} | cancelled_at={updated['cancelled_at']}")
 
 
 def _list_customers(args: argparse.Namespace) -> None:
@@ -207,6 +319,43 @@ def build_parser() -> argparse.ArgumentParser:
     customer_info = subparsers.add_parser('customer-info', help='Toon customerinformatie')
     customer_info.add_argument('email')
     customer_info.set_defaults(func=_customer_info)
+
+    account_info = subparsers.add_parser('account-info', help='Toon accountcontext voor een e-mailadres')
+    account_info.add_argument('email')
+    account_info.set_defaults(func=_account_info)
+
+    add_email = subparsers.add_parser('add-account-email', help='Voeg een extra e-mailadres toe aan een bestaand account')
+    add_email.add_argument('owner_email', help='Geverifieerd beheeradres van het account')
+    add_email.add_argument('email', help='Nieuw e-mailadres dat moet worden bevestigd')
+    add_email.add_argument('--label', default='extra', help='Label, bijvoorbeeld zakelijk, prive of boekhouder')
+    add_email.add_argument('--no-store', action='store_true', help='Nieuw adres mag geen documenten opslaan')
+    add_email.add_argument('--no-search', action='store_true', help='Nieuw adres mag geen documenten zoeken')
+    add_email.add_argument('--can-manage', action='store_true', help='Nieuw adres mag later accountinstellingen beheren')
+    add_email.add_argument('--show-activation-link', action='store_true', help='Toon verificatielink in de terminal')
+    add_email.set_defaults(func=_add_account_email)
+
+    payment_request = subparsers.add_parser('send-payment-request', help='Stuur betaalverzoek naar een accountadres')
+    payment_request.add_argument('email')
+    payment_request.add_argument('--print-link-only', action='store_true', help='Print alleen de betaallink; stuur geen mail')
+    payment_request.set_defaults(func=_send_payment_request)
+
+    mark_paid = subparsers.add_parser('mark-account-paid', help='Zet account handmatig op betaald/active')
+    mark_paid.add_argument('email')
+    mark_paid.add_argument('--subscription-id', default=None)
+    mark_paid.add_argument('--paid-until', default=None, help='Optioneel: YYYY-MM-DD')
+    mark_paid.add_argument('--notes', default=None)
+    mark_paid.set_defaults(func=_mark_account_paid)
+
+    extend_trial_cmd = subparsers.add_parser('extend-trial', help='Verleng of reset trial voor een account')
+    extend_trial_cmd.add_argument('email')
+    extend_trial_cmd.add_argument('trial_ends_at', help='YYYY-MM-DD')
+    extend_trial_cmd.add_argument('--notes', default=None)
+    extend_trial_cmd.set_defaults(func=_extend_trial)
+
+    cancel_account = subparsers.add_parser('cancel-account', help='Zet account handmatig op canceled')
+    cancel_account.add_argument('email')
+    cancel_account.add_argument('--notes', default=None)
+    cancel_account.set_defaults(func=_cancel_account)
 
     list_customers_cmd = subparsers.add_parser('list-customers', help='Toon customers')
     list_customers_cmd.add_argument('--status', choices=['pending_verification', 'trial', 'active', 'blocked'], default=None)

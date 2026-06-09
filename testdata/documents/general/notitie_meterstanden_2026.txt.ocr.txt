@@ -1,0 +1,6 @@
+Notitie
+Meterstanden opgenomen op 07-06-2026.
+Elektra hoog: 12345
+Elektra laag: 9876
+Gas: 4567
+Bewaren voor controle jaarafrekening.
