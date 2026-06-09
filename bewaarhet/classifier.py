@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, List
@@ -16,6 +16,14 @@ class ClassificationResult:
     confidence: float
     reason: str
     method: str = 'rules'
+    rule_confidence: float = 0.0
+    fallback_threshold: float = 0.65
+    ai_fallback_enabled: bool = False
+    ai_fallback_used: bool = False
+    ai_fallback_considered: bool = False
+    ai_fallback_reason: str = 'not evaluated'
+    ocr_sufficient_for_ai: bool = False
+    alternative_categories: tuple[str, ...] = ()
 
 
 # Weighted keyword lists. Strong > medium > weak.
@@ -35,7 +43,7 @@ WEIGHTS = {
         'weak': []
     },
     'contracten': {
-        'strong': ['contract', 'overeenkomst', 'algemene voorwaarden', 'voorwaarden', 'looptijd', 'handtekening', 'ondertekening', 'partijen', 'ingangsdatum', 'beëindiging', 'clausule', 'huurovereenkomst'],
+        'strong': ['contract', 'overeenkomst', 'algemene voorwaarden', 'voorwaarden', 'looptijd', 'handtekening', 'ondertekening', 'partijen', 'ingangsdatum', 'beÃ«indiging', 'clausule', 'huurovereenkomst'],
         'medium': ['opzeg', 'opzegging', 'abonnement'],
         'weak': ['huur']
     },
@@ -109,6 +117,89 @@ def _has_contract_evidence(haystack: str) -> bool:
     return any(_count_matches(haystack, term) for term in evidence_terms)
 
 
+def _confidence_from_scores(top_score: int, second_score: int) -> float:
+    margin = top_score - second_score
+    return round(min(0.98, 0.55 + (top_score * 0.04) + (margin * 0.03)), 2)
+
+
+def _ocr_sufficient_for_ai(text: str, subject: str = '', filename: str = '', snippet: str = '') -> bool:
+    combined = f'{subject}\n{filename}\n{snippet}\n{text}'.strip()
+    return len(combined) >= 40
+
+
+def _result_with_ai_decision(
+    category: str,
+    confidence: float,
+    reason: str,
+    *,
+    method: str = 'rules',
+    allow_ai_fallback: bool,
+    ai_fallback_used: bool = False,
+    ai_fallback_considered: bool = False,
+    ai_fallback_reason: str,
+    ocr_sufficient_for_ai: bool,
+    alternative_categories: tuple[str, ...] = (),
+) -> ClassificationResult:
+    return ClassificationResult(
+        category,
+        confidence,
+        reason,
+        method,
+        rule_confidence=confidence,
+        ai_fallback_enabled=bool(allow_ai_fallback and settings.openai_api_key),
+        ai_fallback_used=ai_fallback_used,
+        ai_fallback_considered=ai_fallback_considered,
+        ai_fallback_reason=ai_fallback_reason,
+        ocr_sufficient_for_ai=ocr_sufficient_for_ai,
+        alternative_categories=alternative_categories,
+    )
+
+
+def _maybe_ai_fallback(
+    text: str,
+    filename: str,
+    subject: str,
+    snippet: str,
+    *,
+    allow_ai_fallback: bool,
+    fallback_reason: str,
+    fallback_confidence: float,
+    alternative_categories: tuple[str, ...],
+) -> ClassificationResult:
+    ocr_sufficient = _ocr_sufficient_for_ai(text, subject, filename, snippet)
+    if not allow_ai_fallback:
+        reason = 'AI fallback disabled for this run'
+    elif not settings.openai_api_key:
+        reason = 'AI fallback unavailable: OPENAI_API_KEY not configured'
+    elif not ocr_sufficient:
+        reason = 'AI fallback skipped: OCR/context too short'
+    else:
+        fallback = classify_openai(text, filename, subject, snippet)
+        return _result_with_ai_decision(
+            fallback,
+            0.55 if fallback != 'overig' else fallback_confidence,
+            f'{fallback_reason}; AI fallback used',
+            method='fallback',
+            allow_ai_fallback=allow_ai_fallback,
+            ai_fallback_used=True,
+            ai_fallback_considered=True,
+            ai_fallback_reason='AI fallback called because rule confidence was too low or ambiguous',
+            ocr_sufficient_for_ai=ocr_sufficient,
+            alternative_categories=alternative_categories,
+        )
+
+    return _result_with_ai_decision(
+        'overig',
+        fallback_confidence,
+        f'{fallback_reason}; fallback not called',
+        allow_ai_fallback=allow_ai_fallback,
+        ai_fallback_considered=True,
+        ai_fallback_reason=reason,
+        ocr_sufficient_for_ai=ocr_sufficient,
+        alternative_categories=alternative_categories,
+    )
+
+
 def classify_rules(text: str, filename: str = '', subject: str = '', snippet: str = '') -> str:
     haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
 
@@ -119,7 +210,7 @@ def classify_rules(text: str, filename: str = '', subject: str = '', snippet: st
     ):
         return 'notities'
 
-    if 'recept' in haystack and any(term in haystack for term in ['ingredient', 'ingredienten', 'ingrediënten', 'bloem', 'kaneel', 'oven']):
+    if 'recept' in haystack and any(term in haystack for term in ['ingredient', 'ingredienten', 'ingrediÃ«nten', 'bloem', 'kaneel', 'oven']):
         return 'notities'
 
     advice_signals = [
@@ -226,7 +317,7 @@ def classify_openai(text: str, filename: str = '', subject: str = '', snippet: s
                 {
                     'role': 'system',
                     'content': (
-                        'Classificeer een Nederlands document in exact één lowercase woord uit: '
+                        'Classificeer een Nederlands document in exact Ã©Ã©n lowercase woord uit: '
                         'facturen, bonnen, contracten, belasting, notities, overig. '
                         'Gebruik OCR-tekst eerst. Als OCR leeg of slecht is, gebruik bestandsnaam, onderwerp en snippet. '
                         'Het woord btw alleen is niet genoeg voor belasting. Geef alleen het categorie-woord terug.'
@@ -254,17 +345,39 @@ def classify_document(text: str, filename: str = '', subject: str = '', snippet:
     return classify_openai(text, filename, subject, snippet)
 
 
-def classify_document_with_reason(text: str, filename: str = '', subject: str = '', snippet: str = '') -> ClassificationResult:
+def classify_document_with_reason(
+    text: str,
+    filename: str = '',
+    subject: str = '',
+    snippet: str = '',
+    *,
+    allow_ai_fallback: bool = True,
+) -> ClassificationResult:
     haystack = f'{subject}\n{filename}\n{snippet}\n{text}'.lower()
+    ocr_sufficient = _ocr_sufficient_for_ai(text, subject, filename, snippet)
 
     if (
         (is_note_like_content(text, subject, filename) or is_note_like_content(snippet, subject, filename))
         and not _has_receipt_evidence(haystack)
         and not _has_invoice_evidence(haystack)
     ):
-        return ClassificationResult('notities', 0.92, 'note-like content detected')
+        return _result_with_ai_decision(
+            'notities',
+            0.92,
+            'note-like content detected',
+            allow_ai_fallback=allow_ai_fallback,
+            ai_fallback_reason='AI fallback skipped: high-confidence rule match',
+            ocr_sufficient_for_ai=ocr_sufficient,
+        )
     if 'recept' in haystack and any(term in haystack for term in ['ingredient', 'ingredienten', 'ingrediënten', 'bloem', 'kaneel', 'oven']):
-        return ClassificationResult('notities', 0.9, 'recipe/note content detected')
+        return _result_with_ai_decision(
+            'notities',
+            0.9,
+            'recipe/note content detected',
+            allow_ai_fallback=allow_ai_fallback,
+            ai_fallback_reason='AI fallback skipped: high-confidence rule match',
+            ocr_sufficient_for_ai=ocr_sufficient,
+        )
 
     scores: Dict[str, int] = {c: 0 for c in CATEGORIES}
     weight_map = {'strong': 3, 'medium': 2, 'weak': 1}
@@ -303,28 +416,64 @@ def classify_document_with_reason(text: str, filename: str = '', subject: str = 
     sorted_scores = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     top_category, top_score = sorted_scores[0]
     second_category, second_score = sorted_scores[1]
+    alternative_categories = tuple(f'{category}:{score}' for category, score in sorted_scores[:3])
 
     if top_score == 0:
-        fallback = classify_openai(text, filename, subject, snippet)
-        return ClassificationResult(fallback, 0.35 if fallback != 'overig' else 0.2, 'no strong rule evidence; fallback used', 'fallback')
-
-    if top_category == 'facturen' and not _has_invoice_evidence(haystack):
-        fallback = classify_openai(text, filename, subject, snippet)
-        return ClassificationResult(fallback, 0.4 if fallback != 'overig' else 0.25, 'invoice score lacked invoice evidence; fallback used', 'fallback')
-    if top_category == 'contracten' and not _has_contract_evidence(haystack):
-        fallback = classify_openai(text, filename, subject, snippet)
-        return ClassificationResult(fallback, 0.4 if fallback != 'overig' else 0.25, 'contract score lacked contract evidence; fallback used', 'fallback')
-
-    margin = top_score - second_score
-    if margin < 2:
-        fallback = classify_openai(text, filename, subject, snippet)
-        return ClassificationResult(
-            fallback,
-            0.45 if fallback != 'overig' else 0.3,
-            f'classification ambiguous: {top_category}={top_score}, {second_category}={second_score}',
-            'fallback',
+        return _maybe_ai_fallback(
+            text,
+            filename,
+            subject,
+            snippet,
+            allow_ai_fallback=allow_ai_fallback,
+            fallback_reason='no strong rule evidence',
+            fallback_confidence=0.2,
+            alternative_categories=alternative_categories,
         )
 
-    confidence = min(0.98, 0.55 + (top_score * 0.04) + (margin * 0.03))
+    if top_category == 'facturen' and not _has_invoice_evidence(haystack):
+        return _maybe_ai_fallback(
+            text,
+            filename,
+            subject,
+            snippet,
+            allow_ai_fallback=allow_ai_fallback,
+            fallback_reason='invoice score lacked invoice evidence',
+            fallback_confidence=0.25,
+            alternative_categories=alternative_categories,
+        )
+    if top_category == 'contracten' and not _has_contract_evidence(haystack):
+        return _maybe_ai_fallback(
+            text,
+            filename,
+            subject,
+            snippet,
+            allow_ai_fallback=allow_ai_fallback,
+            fallback_reason='contract score lacked contract evidence',
+            fallback_confidence=0.25,
+            alternative_categories=alternative_categories,
+        )
+
+    margin = top_score - second_score
+    confidence = _confidence_from_scores(top_score, second_score)
+    if margin < 2:
+        return _maybe_ai_fallback(
+            text,
+            filename,
+            subject,
+            snippet,
+            allow_ai_fallback=allow_ai_fallback,
+            fallback_reason=f'classification ambiguous: {top_category}={top_score}, {second_category}={second_score}',
+            fallback_confidence=0.3,
+            alternative_categories=alternative_categories,
+        )
+
     reason_terms = ', '.join(matched[top_category][:5]) or f'score {top_score}'
-    return ClassificationResult(top_category, round(confidence, 2), f'{top_category} won with score {top_score}; evidence: {reason_terms}')
+    return _result_with_ai_decision(
+        top_category,
+        confidence,
+        f'{top_category} won with score {top_score}; evidence: {reason_terms}',
+        allow_ai_fallback=allow_ai_fallback,
+        ai_fallback_reason='AI fallback skipped: rule confidence above threshold',
+        ocr_sufficient_for_ai=ocr_sufficient,
+        alternative_categories=alternative_categories,
+    )

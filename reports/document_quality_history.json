@@ -115,6 +115,122 @@
           "search_ok": 2
         }
       }
+    },
+    {
+      "timestamp": "2026-06-09T18:12:01.710585+00:00",
+      "testdata": "testdata\\documents",
+      "total": 7,
+      "ocr_ok": 7,
+      "ocr_pct": 100.0,
+      "classification_ok": 7,
+      "classification_pct": 100.0,
+      "search_ok": 14,
+      "search_total": 14,
+      "search_pct": 100.0,
+      "avg_confidence": 0.867,
+      "avg_ocr_score": 1.0,
+      "by_expected_category": {
+        "facturen": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        },
+        "bonnen": {
+          "total": 2,
+          "ocr_ok": 2,
+          "classification_ok": 2,
+          "search_total": 4,
+          "search_ok": 4
+        },
+        "overig": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        },
+        "contracten": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        },
+        "belasting": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        },
+        "notities": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        }
+      }
+    },
+    {
+      "timestamp": "2026-06-09T18:15:27.112900+00:00",
+      "testdata": "testdata\\documents",
+      "total": 7,
+      "ocr_ok": 7,
+      "ocr_pct": 100.0,
+      "classification_ok": 7,
+      "classification_pct": 100.0,
+      "search_ok": 14,
+      "search_total": 14,
+      "search_pct": 100.0,
+      "avg_confidence": 0.867,
+      "avg_ocr_score": 1.0,
+      "by_expected_category": {
+        "facturen": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        },
+        "bonnen": {
+          "total": 2,
+          "ocr_ok": 2,
+          "classification_ok": 2,
+          "search_total": 4,
+          "search_ok": 4
+        },
+        "overig": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        },
+        "contracten": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        },
+        "belasting": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        },
+        "notities": {
+          "total": 1,
+          "ocr_ok": 1,
+          "classification_ok": 1,
+          "search_total": 2,
+          "search_ok": 2
+        }
+      }
     }
   ]
 }

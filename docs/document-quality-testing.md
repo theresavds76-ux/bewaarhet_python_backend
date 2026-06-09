@@ -10,6 +10,7 @@ Deze kwaliteitslus test lokaal:
 
 - OCR-bruikbaarheid;
 - documentherkenning;
+- classifier-route en AI-fallbackbeslissing;
 - partij/afzenderdetectie;
 - purpose/domain;
 - bestandsnaamgeving;
@@ -110,6 +111,12 @@ Real-world kwaliteitsset:
 .\.venv\Scripts\python.exe -m bewaarhet.tools.process_test_documents --testdata testdata\real_world_documents --report reports\real_world_document_quality_report.md --history reports\real_world_document_quality_history.json
 ```
 
+De processor maakt daarnaast een reviewbaar foutenanalyserapport:
+
+```text
+reports/document_failure_review.md
+```
+
 Het script faalt met exitcode `1` als:
 
 - OCR te weinig tekst oplevert;
@@ -140,6 +147,38 @@ Het rapport toont:
 - trends ten opzichte van de vorige run;
 - concrete failures of twijfelgevallen.
 
+## Human review mode
+
+Voor menselijke controle:
+
+```powershell
+.\.venv\Scripts\python.exe -m bewaarhet.tools.review_document_quality --testdata testdata\real_world_documents --report reports\document_failure_review.md
+```
+
+Dit rapport toont voor failures en onzekerheden:
+
+- bestandsnaam en documentvariant;
+- verwachte en voorspelde categorie;
+- OCR-score en OCR-preview;
+- gefaalde of lage zoekvragen;
+- classifier-route;
+- rule-based confidence;
+- fallback-threshold;
+- AI fallback enabled/used/considered;
+- waarom AI fallback wel of niet is gebruikt;
+- wat een mens waarschijnlijk zou herkennen;
+- een concrete aanbeveling.
+
+Echte AI fallback staat in de lokale kwaliteitsflow standaard uit. Daardoor worden er geen externe API-calls gedaan en verlaat testdata de machine niet.
+
+Alleen als dit expliciet wordt meegegeven, mag de testflow AI fallback proberen:
+
+```powershell
+.\.venv\Scripts\python.exe -m bewaarhet.tools.review_document_quality --testdata testdata\real_world_documents --allow-ai-fallback
+```
+
+Ook dan is een geconfigureerde `OPENAI_API_KEY` nodig. Zonder die key wordt gerapporteerd waarom fallback niet beschikbaar was.
+
 ## Huidige baseline
 
 Laatste real-world run:
@@ -148,6 +187,8 @@ Laatste real-world run:
 Totaal aantal documenten: 7
 OCR bruikbaar: 7/7 (100.0%)
 Correct geclassificeerd: 7/7 (100.0%)
+Uncertain cases: 1
+AI fallback mogelijk maar niet gebruikt: 1
 Zoektests geslaagd: 14/14 (100.0%)
 Gemiddelde classificatieconfidence: 0.864
 ```
@@ -175,6 +216,7 @@ Deze test controleert zowel de synthetische baseline als de real-world kwaliteit
 - Contractherkenning vereist sterker contractbewijs; alleen `ingangsdatum` is niet genoeg.
 - Zoekterm `belastingaanslag` wordt uitgebreid naar verwante termen zoals `belasting`, `aanslag` en `inkomstenbelasting`.
 - Real-world rapportage toont trends en performance per documenttype.
+- Failure review rapport toont OCR-preview, classifier-route, AI-fallbackbeslissing en aanbeveling per onzeker/fout document.
 
 ## Veiligheidsafspraken
 
@@ -183,6 +225,7 @@ Deze test controleert zowel de synthetische baseline als de real-world kwaliteit
 - Geen willekeurige privebestanden van internet gebruiken.
 - Geen mail versturen vanuit de testflow.
 - Geen Dropbox upload in de testflow.
+- Geen externe AI-calls tenzij `--allow-ai-fallback` expliciet wordt gebruikt.
 - Alleen synthetische, publieke demo- of geanonimiseerde documenten gebruiken.
 
 ## Volgende verbeterpunten

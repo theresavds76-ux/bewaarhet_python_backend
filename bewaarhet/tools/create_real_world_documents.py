@@ -196,6 +196,7 @@ def _write_sample(sample: dict) -> dict:
         'id': sample['id'],
         'path': str(path.relative_to(TESTDATA)).replace('\\', '/'),
         'subject': sample['subject'],
+        'variant': sample['variant'],
         'date_received': '2026-06-09',
         'expected': sample['expected'],
     }

@@ -7,8 +7,9 @@
 - OCR bruikbaar: 7/7 (100.0%)
 - Gemiddelde OCR termscore: 1.0
 - Correct geclassificeerd: 7/7 (100.0%)
-- Twijfelgevallen confidence < 0.65: 1
+- Uncertain cases: 1
 - Fout geclassificeerd: 0
+- AI fallback mogelijk maar niet gebruikt: 1
 - Zoektests geslaagd: 14/14 (100.0%)
 - Gemiddelde classificatieconfidence: 0.867
 
@@ -37,6 +38,10 @@
 - Verwacht type: facturen
 - Gevonden type: facturen, confidence=0.98
 - Reden: facturen won with score 39; evidence: strong:factuur, strong:factuurnummer, strong:factuurnummer, strong:factuurdatum, medium:bedrag
+- Classifier-route: rules
+- Rule confidence/fallback threshold: 0.98/0.65
+- AI fallback: enabled=False, considered=False, used=False
+- AI fallback beslissing: AI fallback skipped: rule confidence above threshold
 - Partij: kpn (ok=True)
 - Purpose/domain: abonnement/abonnementen
 - Bestandsnaam: `factuur_kpn_abonnement_01-06-2026.txt` (ok=True)
@@ -49,6 +54,10 @@
 - Verwacht type: bonnen
 - Gevonden type: bonnen, confidence=0.98
 - Reden: bonnen won with score 17; evidence: strong:aankoopbewijs, medium:ordernummer, medium:besteldatum
+- Classifier-route: rules
+- Rule confidence/fallback threshold: 0.98/0.65
+- AI fallback: enabled=False, considered=False, used=False
+- AI fallback beslissing: AI fallback skipped: rule confidence above threshold
 - Partij: bol (ok=True)
 - Purpose/domain: aankoopbewijs/garantie
 - Bestandsnaam: `aankoopbewijs_bol_03-06-2026.txt` (ok=True)
@@ -60,7 +69,11 @@
 - OCR: text_found, chars=159, termscore=1.0, ok=True
 - Verwacht type: overig
 - Gevonden type: overig, confidence=0.25
-- Reden: contract score lacked contract evidence; fallback used
+- Reden: contract score lacked contract evidence; fallback not called
+- Classifier-route: rules
+- Rule confidence/fallback threshold: 0.25/0.65
+- AI fallback: enabled=False, considered=True, used=False
+- AI fallback beslissing: AI fallback disabled for this run
 - Partij: lemonade (ok=True)
 - Purpose/domain: polis/verzekeringen
 - Bestandsnaam: `polis_lemonade_01-06-2026.txt` (ok=True)
@@ -73,6 +86,10 @@
 - Verwacht type: contracten
 - Gevonden type: contracten, confidence=0.98
 - Reden: contracten won with score 37; evidence: strong:contract, strong:overeenkomst, strong:looptijd, strong:ondertekening, strong:partijen
+- Classifier-route: rules
+- Rule confidence/fallback threshold: 0.98/0.65
+- AI fallback: enabled=False, considered=False, used=False
+- AI fallback beslissing: AI fallback skipped: rule confidence above threshold
 - Partij: ziggo (ok=True)
 - Purpose/domain: abonnement/abonnementen
 - Bestandsnaam: `contract_ziggo_abonnement_10-06-2026.txt` (ok=True)
@@ -85,6 +102,10 @@
 - Verwacht type: belasting
 - Gevonden type: belasting, confidence=0.98
 - Reden: belasting won with score 44; evidence: strong:belastingdienst, strong:aanslag, strong:voorlopige aanslag, strong:aanslagnummer, strong:inkomstenbelasting
+- Classifier-route: rules
+- Rule confidence/fallback threshold: 0.98/0.65
+- AI fallback: enabled=False, considered=False, used=False
+- AI fallback beslissing: AI fallback skipped: rule confidence above threshold
 - Partij: belastingdienst (ok=True)
 - Purpose/domain: betaalinformatie/belasting
 - Bestandsnaam: `belasting_belastingdienst_betaalinformatie_05-06-2026.txt` (ok=True)
@@ -97,6 +118,10 @@
 - Verwacht type: notities
 - Gevonden type: notities, confidence=0.92
 - Reden: note-like content detected
+- Classifier-route: rules
+- Rule confidence/fallback threshold: 0.92/0.65
+- AI fallback: enabled=False, considered=False, used=False
+- AI fallback beslissing: AI fallback skipped: high-confidence rule match
 - Partij: notitie_meterstanden (ok=True)
 - Purpose/domain: notitie/overig
 - Bestandsnaam: `notitie_meterstanden_meterstanden_opgenomen_op_07-06-2026.txt` (ok=True)
@@ -109,6 +134,10 @@
 - Verwacht type: bonnen
 - Gevonden type: bonnen, confidence=0.98
 - Reden: bonnen won with score 17; evidence: strong:kassabon, medium:bedankt voor uw bezoek, medium:contactloos
+- Classifier-route: rules
+- Rule confidence/fallback threshold: 0.98/0.65
+- AI fallback: enabled=False, considered=False, used=False
+- AI fallback beslissing: AI fallback skipped: rule confidence above threshold
 - Partij: jumbo (ok=True)
 - Purpose/domain: bon/garantie
 - Bestandsnaam: `bon_jumbo_08-06-2026.png` (ok=True)
@@ -116,4 +145,5 @@
 
 ## Top verbeterpunten
 
-1. policy_lemonade: lage confidence (0.25); reden: contract score lacked contract evidence; fallback used.
+1. policy_lemonade: lage confidence (0.25); reden: contract score lacked contract evidence; fallback not called.
+2. policy_lemonade: onzekerheid - AI fallback had inhoudelijk gekund maar is niet gebruikt.

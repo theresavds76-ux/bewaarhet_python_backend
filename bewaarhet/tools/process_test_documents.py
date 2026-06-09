@@ -15,12 +15,14 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TESTDATA = ROOT / 'testdata' / 'documents'
 DEFAULT_REPORT = ROOT / 'reports' / 'document_quality_report.md'
 DEFAULT_HISTORY = ROOT / 'reports' / 'document_quality_history.json'
+DEFAULT_FAILURE_REVIEW = ROOT / 'reports' / 'document_failure_review.md'
 
 
 @dataclass(frozen=True)
 class DocumentResult:
     id: str
     path: Path
+    variant: str
     expected: dict
     ocr_status: str
     ocr_text: str
@@ -28,6 +30,15 @@ class DocumentResult:
     category: str
     confidence: float
     reason: str
+    method: str
+    rule_confidence: float
+    fallback_threshold: float
+    ai_fallback_enabled: bool
+    ai_fallback_used: bool
+    ai_fallback_considered: bool
+    ai_fallback_reason: str
+    ocr_sufficient_for_ai: bool
+    alternative_categories: tuple[str, ...]
     supplier: str
     purpose: str
     domain: str
@@ -105,14 +116,14 @@ def _row_for_search(result: DocumentResult) -> dict[str, str]:
     }
 
 
-def process_document(entry: dict, testdata: Path) -> DocumentResult:
+def process_document(entry: dict, testdata: Path, *, allow_ai_fallback: bool = False) -> DocumentResult:
     document_path = testdata / entry['path']
     if not document_path.exists():
         raise FileNotFoundError(f"Test document not found: {document_path}")
 
     ocr_status, ocr_text = _ocr_text_for(document_path)
     subject = entry.get('subject', '')
-    classification = classify_document_with_reason(ocr_text, document_path.name, subject, ocr_text[:500])
+    classification = classify_document_with_reason(ocr_text, document_path.name, subject, ocr_text[:500], allow_ai_fallback=allow_ai_fallback)
     supplier = detect_supplier(ocr_text, subject, document_path.name, 'test@example.com')
     purpose = detect_purpose(ocr_text, subject, document_path.name)
     domain = detect_domain(ocr_text, subject, document_path.name, supplier, purpose)
@@ -134,6 +145,7 @@ def process_document(entry: dict, testdata: Path) -> DocumentResult:
     temp_result = DocumentResult(
         id=entry['id'],
         path=document_path,
+        variant=entry.get('variant', ''),
         expected=expected,
         ocr_status=ocr_status,
         ocr_text=ocr_text,
@@ -141,6 +153,15 @@ def process_document(entry: dict, testdata: Path) -> DocumentResult:
         category=classification.category,
         confidence=classification.confidence,
         reason=classification.reason,
+        method=classification.method,
+        rule_confidence=classification.rule_confidence,
+        fallback_threshold=classification.fallback_threshold,
+        ai_fallback_enabled=classification.ai_fallback_enabled,
+        ai_fallback_used=classification.ai_fallback_used,
+        ai_fallback_considered=classification.ai_fallback_considered,
+        ai_fallback_reason=classification.ai_fallback_reason,
+        ocr_sufficient_for_ai=classification.ocr_sufficient_for_ai,
+        alternative_categories=classification.alternative_categories,
         supplier=supplier,
         purpose=purpose,
         domain=domain,
@@ -193,12 +214,164 @@ def summarize_results(results: list[DocumentResult], *, testdata: Path) -> dict:
     }
 
 
+def failed_searches(result: DocumentResult) -> list[dict]:
+    return [search for search in result.search_results if not search['ok']]
+
+
+def low_searches(result: DocumentResult) -> list[dict]:
+    return [
+        search for search in result.search_results
+        if search['ok'] and search['score'] < MIN_SEARCH_RESULT_SCORE + 15
+    ]
+
+
+def is_failure(result: DocumentResult) -> bool:
+    return (
+        not result.ocr_ok
+        or not result.classification_ok
+        or not result.filename_ok
+        or bool(failed_searches(result))
+    )
+
+
+def uncertainty_reasons(result: DocumentResult) -> list[str]:
+    reasons: list[str] = []
+    if result.confidence < result.fallback_threshold:
+        reasons.append(f'lage classifier confidence ({result.confidence})')
+    if result.ocr_score < 0.8:
+        reasons.append(f'lage OCR termscore ({result.ocr_score})')
+    if low_searches(result):
+        reasons.append('zoekscore laag maar net voldoende')
+    if result.category == 'overig' and result.expected.get('ocr_terms'):
+        reasons.append('document valt in overig terwijl herkenbare termen aanwezig zijn')
+    if result.ai_fallback_considered and not result.ai_fallback_used and result.ocr_sufficient_for_ai:
+        reasons.append('AI fallback had inhoudelijk gekund maar is niet gebruikt')
+    return reasons
+
+
+def is_uncertain(result: DocumentResult) -> bool:
+    return bool(uncertainty_reasons(result))
+
+
+def human_likely_category(result: DocumentResult) -> str:
+    expected = result.expected.get('category')
+    if expected:
+        return str(expected)
+    if result.category != 'overig':
+        return result.category
+    if result.purpose:
+        return result.purpose
+    return 'onzeker'
+
+
+def recommendation_for(result: DocumentResult) -> str:
+    if not result.ocr_ok:
+        return 'OCR preprocessing verbeteren en echte OCR-output vergelijken.'
+    if not result.classification_ok:
+        if result.ai_fallback_considered and not result.ai_fallback_used and result.ocr_sufficient_for_ai:
+            return 'AI fallback eerder inschakelen of een veilige testmock gebruiken.'
+        return 'Classifier-regel verbeteren en false positive/negative toevoegen aan regressietest.'
+    if result.category == 'overig' and result.confidence < result.fallback_threshold:
+        return 'Overweeg subtype of AI-review, maar blijf liever veilig dan agressief fout classificeren.'
+    if low_searches(result) or failed_searches(result):
+        return 'Zoeksynoniemen of scoring verbeteren.'
+    if not result.filename_ok:
+        return 'Naamgevingsregel of testverwachting controleren.'
+    return 'Geen directe actie; markeren als watchlist.'
+
+
+def ocr_preview(text: str, *, limit: int = 600) -> str:
+    preview = ' '.join((text or '').split())
+    if len(preview) > limit:
+        return preview[:limit].rstrip() + '...'
+    return preview
+
+
+def build_failure_review_report(results: list[DocumentResult], *, testdata: Path) -> str:
+    failures = [result for result in results if is_failure(result)]
+    uncertain = [result for result in results if not is_failure(result) and is_uncertain(result)]
+    ai_could_have_run = [
+        result for result in results
+        if result.ai_fallback_considered and not result.ai_fallback_used and result.ocr_sufficient_for_ai
+    ]
+    by_type: dict[str, int] = {}
+    for result in failures + uncertain:
+        category = str(result.expected.get('category') or result.category or 'unknown')
+        by_type[category] = by_type.get(category, 0) + 1
+
+    lines = [
+        '# Bewaarhet failure review',
+        '',
+        '## Samenvatting',
+        '',
+        f'- Testset: `{testdata.relative_to(ROOT) if testdata.is_relative_to(ROOT) else testdata}`',
+        f'- Failures: {len(failures)}',
+        f'- Uncertain cases: {len(uncertain)}',
+        f'- AI fallback mogelijk maar niet gebruikt: {len(ai_could_have_run)}',
+        '',
+        '## Documenttypes met meeste aandacht',
+        '',
+    ]
+    if by_type:
+        for category, count in sorted(by_type.items(), key=lambda item: item[1], reverse=True):
+            lines.append(f'- {category}: {count}')
+    else:
+        lines.append('- Geen failures of onzekerheden in deze run.')
+
+    def add_section(title: str, items: list[DocumentResult]) -> None:
+        lines.extend(['', f'## {title}', ''])
+        if not items:
+            lines.append('Geen documenten in deze bucket.')
+            return
+        for result in items:
+            failed_queries = ', '.join(f"{item['query']} ({item['score']})" for item in failed_searches(result)) or 'geen'
+            low_queries = ', '.join(f"{item['query']} ({item['score']})" for item in low_searches(result)) or 'geen'
+            reasons = '; '.join(uncertainty_reasons(result)) or 'harde failure'
+            variant = result.variant or result.expected.get('variant') or result.expected.get('document_variant') or result.expected.get('source_variant') or 'niet gespecificeerd'
+            lines.extend([
+                f'### {result.id}',
+                '',
+                f'- Bestand: `{result.path.relative_to(ROOT)}`',
+                f'- Documentvariant: {variant}',
+                f"- Verwachte categorie: {result.expected.get('category')}",
+                f'- Voorspelde categorie: {result.category}',
+                f'- Confidence: {result.confidence}',
+                f'- Rule-based confidence: {result.rule_confidence}',
+                f'- Fallback threshold: {result.fallback_threshold}',
+                f'- OCR-status: {result.ocr_status}',
+                f'- OCR-score: {result.ocr_score}',
+                f'- OCR-preview: {ocr_preview(result.ocr_text)}',
+                f'- Zoekvragen gefaald: {failed_queries}',
+                f'- Zoekvragen laag maar geslaagd: {low_queries}',
+                f'- Classifier-route: {result.method}',
+                f'- Classifier reason: {result.reason}',
+                f'- Alternatieve categorieen: {", ".join(result.alternative_categories) or "geen"}',
+                f'- AI fallback enabled: {result.ai_fallback_enabled}',
+                f'- AI fallback used: {result.ai_fallback_used}',
+                f'- AI fallback considered: {result.ai_fallback_considered}',
+                f'- AI fallback beslissing: {result.ai_fallback_reason}',
+                f'- OCR zinvol voor AI: {result.ocr_sufficient_for_ai}',
+                f'- Mens zou waarschijnlijk herkennen als: {human_likely_category(result)}',
+                f'- Reviewreden: {reasons}',
+                f'- Aanbeveling: {recommendation_for(result)}',
+                '',
+            ])
+
+    add_section('Failures', failures)
+    add_section('Uncertain document bucket', uncertain)
+    return '\n'.join(lines) + '\n'
+
+
 def build_report(results: list[DocumentResult], *, testdata: Path, history: list[dict] | None = None) -> str:
     metrics = summarize_results(results, testdata=testdata)
     previous = history[-1] if history else None
     total = len(results)
-    uncertain = sum(1 for result in results if result.confidence < 0.65)
+    uncertain = [result for result in results if is_uncertain(result)]
     wrong = [result for result in results if not result.classification_ok]
+    ai_could_have_run = [
+        result for result in results
+        if result.ai_fallback_considered and not result.ai_fallback_used and result.ocr_sufficient_for_ai
+    ]
 
     lines = [
         '# Bewaarhet document quality report',
@@ -210,8 +383,9 @@ def build_report(results: list[DocumentResult], *, testdata: Path, history: list
         f"- OCR bruikbaar: {metrics['ocr_ok']}/{total} ({metrics['ocr_pct']}%)",
         f"- Gemiddelde OCR termscore: {metrics['avg_ocr_score']}",
         f"- Correct geclassificeerd: {metrics['classification_ok']}/{total} ({metrics['classification_pct']}%)",
-        f'- Twijfelgevallen confidence < 0.65: {uncertain}',
+        f'- Uncertain cases: {len(uncertain)}',
         f'- Fout geclassificeerd: {len(wrong)}',
+        f'- AI fallback mogelijk maar niet gebruikt: {len(ai_could_have_run)}',
         f"- Zoektests geslaagd: {metrics['search_ok']}/{metrics['search_total']} ({metrics['search_pct']}%)",
         f"- Gemiddelde classificatieconfidence: {metrics['avg_confidence']}",
         '',
@@ -247,6 +421,10 @@ def build_report(results: list[DocumentResult], *, testdata: Path, history: list
             f"- Verwacht type: {result.expected.get('category')}",
             f'- Gevonden type: {result.category}, confidence={result.confidence}',
             f'- Reden: {result.reason}',
+            f'- Classifier-route: {result.method}',
+            f'- Rule confidence/fallback threshold: {result.rule_confidence}/{result.fallback_threshold}',
+            f'- AI fallback: enabled={result.ai_fallback_enabled}, considered={result.ai_fallback_considered}, used={result.ai_fallback_used}',
+            f'- AI fallback beslissing: {result.ai_fallback_reason}',
             f'- Partij: {result.supplier} (ok={result.supplier_ok})',
             f'- Purpose/domain: {result.purpose}/{result.domain}',
             f'- Bestandsnaam: `{result.filename}` (ok={result.filename_ok})',
@@ -262,6 +440,9 @@ def build_report(results: list[DocumentResult], *, testdata: Path, history: list
             improvements.append(f"{result.id}: verwacht {result.expected.get('category')}, kreeg {result.category}.")
         if result.confidence < 0.65:
             improvements.append(f'{result.id}: lage confidence ({result.confidence}); reden: {result.reason}.')
+        for reason in uncertainty_reasons(result):
+            if 'lage classifier confidence' not in reason:
+                improvements.append(f'{result.id}: onzekerheid - {reason}.')
         for search in result.search_results:
             if not search['ok']:
                 improvements.append(f"{result.id}: zoekterm '{search['query']}' scoort te laag ({search['score']}).")
@@ -281,6 +462,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--testdata', default=str(DEFAULT_TESTDATA))
     parser.add_argument('--report', default=str(DEFAULT_REPORT))
     parser.add_argument('--history', default=str(DEFAULT_HISTORY))
+    parser.add_argument('--failure-review', default=str(DEFAULT_FAILURE_REVIEW))
+    parser.add_argument('--allow-ai-fallback', action='store_true', help='Sta echte AI fallback toe als OPENAI_API_KEY is geconfigureerd.')
     args = parser.parse_args(argv)
 
     testdata = Path(args.testdata).resolve()
@@ -288,12 +471,17 @@ def main(argv: list[str] | None = None) -> int:
     history_path = Path(args.history).resolve()
     history = _load_history(history_path)
     entries = _load_expected(testdata)
-    results = [process_document(entry, testdata) for entry in entries]
+    results = [process_document(entry, testdata, allow_ai_fallback=args.allow_ai_fallback) for entry in entries]
     report = build_report(results, testdata=testdata, history=history)
+    failure_review = build_failure_review_report(results, testdata=testdata)
     _append_history(history_path, summarize_results(results, testdata=testdata))
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report, encoding='utf-8')
+    failure_review_path = Path(args.failure_review).resolve()
+    failure_review_path.parent.mkdir(parents=True, exist_ok=True)
+    failure_review_path.write_text(failure_review, encoding='utf-8')
     print(f'Processed {len(results)} documents. Report: {report_path}')
+    print(f'Failure review: {failure_review_path}')
     failed = [
         result for result in results
         if not result.ocr_ok

@@ -4,6 +4,7 @@
       "id": "shadow_tax_assessment",
       "path": "tax/schaduw_belastingaanslag.png",
       "subject": "Foto belastingaanslag met schaduw",
+      "variant": "shadow",
       "date_received": "2026-06-09",
       "expected": {
         "category": "belasting",
@@ -30,6 +31,7 @@
       "id": "lowres_health_policy",
       "path": "policies/lage_resolutie_zorgverzekering.png",
       "subject": "Lage resolutie zorgverzekering polis",
+      "variant": "lowres",
       "date_received": "2026-06-09",
       "expected": {
         "category": "overig",
@@ -55,6 +57,7 @@
       "id": "cropped_energy_contract",
       "path": "contracts/afgesneden_energiecontract.png",
       "subject": "Afgesneden energiecontract",
+      "variant": "cropped",
       "date_received": "2026-06-09",
       "expected": {
         "category": "contracten",
@@ -81,6 +84,7 @@
       "id": "stamped_laptop_invoice",
       "path": "invoices/gestempelde_laptop_factuur.png",
       "subject": "Factuur laptop met stempel",
+      "variant": "stamp",
       "date_received": "2026-06-09",
       "expected": {
         "category": "facturen",
@@ -107,6 +111,7 @@
       "id": "handwritten_praxis_receipt",
       "path": "receipts/bon_praxis_handgeschreven.png",
       "subject": "Praxis bon met handgeschreven notitie",
+      "variant": "handwritten",
       "date_received": "2026-06-09",
       "expected": {
         "category": "bonnen",
@@ -132,6 +137,7 @@
       "id": "multilingual_recipe_note",
       "path": "general/recept_appeltaart_meertalig.png",
       "subject": "Recept appeltaart",
+      "variant": "rotated",
       "date_received": "2026-06-09",
       "expected": {
         "category": "notities",
@@ -157,6 +163,7 @@
       "id": "multipage_telecom_invoice",
       "path": "invoices/telecom_factuur_meerdere_paginas.txt",
       "subject": "Meerdere pagina telecom factuur",
+      "variant": "text",
       "date_received": "2026-06-09",
       "expected": {
         "category": "facturen",
