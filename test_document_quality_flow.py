@@ -11,6 +11,7 @@ from bewaarhet.tools.process_test_documents import (
     build_report,
     is_uncertain,
     process_document,
+    write_visual_review_map,
 )
 from bewaarhet.tools.review_document_quality import main as review_main
 
@@ -69,14 +70,36 @@ def test_failure_review_report_contains_ai_decisions_and_uncertain_cases(tmp_pat
 def test_human_review_command_writes_report(tmp_path: Path) -> None:
     testdata = Path(__file__).parent / 'testdata' / 'real_world_documents'
     report_path = tmp_path / 'document_failure_review.md'
+    review_dir = tmp_path / 'review'
 
-    exit_code = review_main(['--testdata', str(testdata), '--report', str(report_path)])
+    exit_code = review_main(['--testdata', str(testdata), '--report', str(report_path), '--review-dir', str(review_dir)])
 
     assert exit_code == 0
     assert report_path.exists()
+    assert (review_dir / 'index.md').exists()
     text = report_path.read_text(encoding='utf-8')
     assert 'Bewaarhet failure review' in text
     assert 'AI fallback mogelijk maar niet gebruikt:' in text
+
+
+def test_visual_review_map_copies_uncertain_documents(tmp_path: Path) -> None:
+    testdata = Path(__file__).parent / 'testdata' / 'real_world_documents'
+    entries = _load_expected(testdata)
+    results = [process_document(entry, testdata) for entry in entries]
+    review_dir = tmp_path / 'review'
+
+    index_path = write_visual_review_map(results, output_dir=review_dir)
+
+    assert index_path.exists()
+    index_text = index_path.read_text(encoding='utf-8')
+    assert 'lowres_health_policy' in index_text
+    assert 'uncertain/lowres_health_policy.png' in index_text
+    assert (review_dir / 'uncertain' / 'lowres_health_policy.png').exists()
+    detail_path = review_dir / 'uncertain' / 'lowres_health_policy.md'
+    assert detail_path.exists()
+    detail_text = detail_path.read_text(encoding='utf-8')
+    assert 'OCR-preview' in detail_text
+    assert 'AI fallback beslissing:' in detail_text
 
 
 def test_rule_based_high_confidence_skips_ai(monkeypatch) -> None:

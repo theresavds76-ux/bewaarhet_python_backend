@@ -117,6 +117,17 @@ De processor maakt daarnaast een reviewbaar foutenanalyserapport:
 reports/document_failure_review.md
 ```
 
+En een visuele reviewmap:
+
+```text
+reports/review/
+|- failed/
+|- uncertain/
+`- index.md
+```
+
+In deze map staan kopieen van testdocumenten die fout of onzeker zijn beoordeeld, plus per document een korte detailpagina met OCR-preview, classifier-uitleg en aanbeveling.
+
 Het script faalt met exitcode `1` als:
 
 - OCR te weinig tekst oplevert;
@@ -168,6 +179,12 @@ Dit rapport toont voor failures en onzekerheden:
 - waarom AI fallback wel of niet is gebruikt;
 - wat een mens waarschijnlijk zou herkennen;
 - een concrete aanbeveling.
+
+Dezelfde command werkt ook de visuele reviewmap bij:
+
+```text
+reports/review/index.md
+```
 
 Echte AI fallback staat in de lokale kwaliteitsflow standaard uit. Daardoor worden er geen externe API-calls gedaan en verlaat testdata de machine niet.
 

@@ -33,7 +33,7 @@ Geen documenten in deze bucket.
 - Zoekvragen laag maar geslaagd: geen
 - Classifier-route: rules
 - Classifier reason: contract score lacked contract evidence; fallback not called
-- Alternatieve categorieen: contracten:6, bonnen:0, notities:0
+- Alternatieve categorieen: contracten:6, bonnen:0, facturen:0
 - AI fallback enabled: False
 - AI fallback used: False
 - AI fallback considered: True

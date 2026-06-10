@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ DEFAULT_TESTDATA = ROOT / 'testdata' / 'documents'
 DEFAULT_REPORT = ROOT / 'reports' / 'document_quality_report.md'
 DEFAULT_HISTORY = ROOT / 'reports' / 'document_quality_history.json'
 DEFAULT_FAILURE_REVIEW = ROOT / 'reports' / 'document_failure_review.md'
+DEFAULT_REVIEW_DIR = ROOT / 'reports' / 'review'
 
 
 @dataclass(frozen=True)
@@ -362,6 +364,101 @@ def build_failure_review_report(results: list[DocumentResult], *, testdata: Path
     return '\n'.join(lines) + '\n'
 
 
+def _safe_review_filename(result: DocumentResult) -> str:
+    return f'{result.id}{result.path.suffix.lower()}'
+
+
+def _review_bucket(result: DocumentResult) -> str | None:
+    if is_failure(result):
+        return 'failed'
+    if is_uncertain(result):
+        return 'uncertain'
+    return None
+
+
+def write_visual_review_map(results: list[DocumentResult], *, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    failed_dir = output_dir / 'failed'
+    uncertain_dir = output_dir / 'uncertain'
+    for folder in (failed_dir, uncertain_dir):
+        folder.mkdir(parents=True, exist_ok=True)
+        for child in folder.iterdir():
+            if child.is_file():
+                child.unlink()
+
+    review_items = [result for result in results if _review_bucket(result)]
+    lines = [
+        '# Bewaarhet visuele review',
+        '',
+        'Deze map bevat kopieen van testdocumenten die fout of onzeker zijn beoordeeld.',
+        '',
+        f'- Failed: {sum(1 for result in review_items if _review_bucket(result) == "failed")}',
+        f'- Uncertain: {sum(1 for result in review_items if _review_bucket(result) == "uncertain")}',
+        '',
+        '## Documenten',
+        '',
+    ]
+    if not review_items:
+        lines.append('Geen failures of onzekerheden in deze run.')
+
+    image_suffixes = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'}
+    for result in review_items:
+        bucket = _review_bucket(result) or 'uncertain'
+        target_dir = output_dir / bucket
+        copied_name = _safe_review_filename(result)
+        copied_path = target_dir / copied_name
+        shutil.copy2(result.path, copied_path)
+
+        detail_path = target_dir / f'{result.id}.md'
+        failed_queries = ', '.join(f"{item['query']} ({item['score']})" for item in failed_searches(result)) or 'geen'
+        low_queries = ', '.join(f"{item['query']} ({item['score']})" for item in low_searches(result)) or 'geen'
+        reasons = '; '.join(uncertainty_reasons(result)) or 'harde failure'
+        detail_lines = [
+            f'# {result.id}',
+            '',
+            f'- Origineel testdocument: `{result.path.relative_to(ROOT)}`',
+            f'- Kopie: `{copied_name}`',
+            f'- Bucket: {bucket}',
+            f'- Verwachte categorie: {result.expected.get("category")}',
+            f'- Voorspelde categorie: {result.category}',
+            f'- Confidence: {result.confidence}',
+            f'- Classifier reason: {result.reason}',
+            f'- AI fallback beslissing: {result.ai_fallback_reason}',
+            f'- Zoekvragen gefaald: {failed_queries}',
+            f'- Zoekvragen laag maar geslaagd: {low_queries}',
+            f'- Reden reviewmap: {reasons}',
+            f'- Aanbeveling: {recommendation_for(result)}',
+            '',
+            '## OCR-preview',
+            '',
+            ocr_preview(result.ocr_text, limit=1200) or 'Geen OCR-tekst beschikbaar.',
+            '',
+        ]
+        if copied_path.suffix.lower() in image_suffixes:
+            detail_lines.extend(['## Visueel', '', f'![{result.id}]({copied_name})', ''])
+        detail_path.write_text('\n'.join(detail_lines), encoding='utf-8')
+
+        relative_doc = f'{bucket}/{copied_name}'
+        relative_detail = f'{bucket}/{result.id}.md'
+        lines.extend([
+            f'### {result.id}',
+            '',
+            f'- Bestand: [{copied_name}]({relative_doc})',
+            f'- Details: [{result.id}.md]({relative_detail})',
+            f'- Categorie: verwacht `{result.expected.get("category")}`, voorspeld `{result.category}`',
+            f'- Confidence: {result.confidence}',
+            f'- Reden opname: {reasons}',
+            f'- Classifier reason: {result.reason}',
+            '',
+        ])
+        if copied_path.suffix.lower() in image_suffixes:
+            lines.extend([f'![{result.id}]({relative_doc})', ''])
+
+    index_path = output_dir / 'index.md'
+    index_path.write_text('\n'.join(lines), encoding='utf-8')
+    return index_path
+
+
 def build_report(results: list[DocumentResult], *, testdata: Path, history: list[dict] | None = None) -> str:
     metrics = summarize_results(results, testdata=testdata)
     previous = history[-1] if history else None
@@ -463,6 +560,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--report', default=str(DEFAULT_REPORT))
     parser.add_argument('--history', default=str(DEFAULT_HISTORY))
     parser.add_argument('--failure-review', default=str(DEFAULT_FAILURE_REVIEW))
+    parser.add_argument('--review-dir', default=str(DEFAULT_REVIEW_DIR))
     parser.add_argument('--allow-ai-fallback', action='store_true', help='Sta echte AI fallback toe als OPENAI_API_KEY is geconfigureerd.')
     args = parser.parse_args(argv)
 
@@ -480,8 +578,10 @@ def main(argv: list[str] | None = None) -> int:
     failure_review_path = Path(args.failure_review).resolve()
     failure_review_path.parent.mkdir(parents=True, exist_ok=True)
     failure_review_path.write_text(failure_review, encoding='utf-8')
+    review_index = write_visual_review_map(results, output_dir=Path(args.review_dir).resolve())
     print(f'Processed {len(results)} documents. Report: {report_path}')
     print(f'Failure review: {failure_review_path}')
+    print(f'Visual review: {review_index}')
     failed = [
         result for result in results
         if not result.ocr_ok
