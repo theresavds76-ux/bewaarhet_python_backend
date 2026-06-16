@@ -3,22 +3,516 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Administratie bewaren via e-mail | Bewaarhet</title>
-  <meta name="description" content="Stuur bonnetjes, facturen en documenten naar Bewaarhet. Wij slaan ze veilig op, zodat je ze later eenvoudig kunt terugvinden via e-mail.">
+  <title>Documenten bewaren via e-mail | Bewaarhet</title>
+  <meta name="description" content="Bewaarhet helpt ondernemers documenten, bonnetjes en facturen via e-mail veilig te bewaren en later gericht terug te vinden. Geen nieuw portaal nodig.">
   <link rel="canonical" href="https://bewaarhet.nl/">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="nl_NL">
   <meta property="og:site_name" content="Bewaarhet">
-  <meta property="og:title" content="Administratie bewaren via e-mail">
-  <meta property="og:description" content="Mail je bonnetjes, facturen en documenten naar Bewaarhet en vind ze later eenvoudig terug.">
+  <meta property="og:title" content="Documenten bewaren via e-mail">
+  <meta property="og:description" content="Mail documenten naar Bewaarhet. Bewaarhet registreert ze en stuurt ze terug wanneer je ze nodig hebt.">
   <meta property="og:url" content="https://bewaarhet.nl/">
   <meta property="og:image" content="https://bewaarhet.nl/social-card.svg">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Administratie bewaren via e-mail">
-  <meta name="twitter:description" content="Gewoon via e-mail documenten bewaren en later terugvinden.">
-  <meta name="theme-color" content="#020713">
+  <meta name="twitter:title" content="Documenten bewaren via e-mail">
+  <meta name="twitter:description" content="Een rustige bewaar- en terugvindlaag voor losse zakelijke documenten.">
+  <meta name="theme-color" content="#15213a">
   <link rel="icon" href="/favicon.svg?v=20260523-logo" type="image/svg+xml">
-  <link rel="stylesheet" href="/styles.css?v=20260526-iphone-polish">
+  <style>
+    :root {
+      --ink: #121827;
+      --muted: #5f6b7a;
+      --soft: #f5f7fb;
+      --panel: #ffffff;
+      --line: #dce2ea;
+      --line-strong: #c4ceda;
+      --blue: #1d4ed8;
+      --blue-dark: #172554;
+      --green: #14765d;
+      --amber: #9a5b12;
+      --shadow: 0 24px 70px rgba(18, 24, 39, 0.11);
+      --radius: 14px;
+      --max: 1140px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #f8fafc;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .wrap {
+      width: min(var(--max), calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .skip-link {
+      position: absolute;
+      left: -999px;
+      top: 12px;
+      z-index: 50;
+      padding: 10px 14px;
+      background: var(--blue-dark);
+      color: #fff;
+    }
+
+    .skip-link:focus { left: 12px; }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(220, 226, 234, 0.9);
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(16px);
+    }
+
+    nav {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--blue-dark);
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: var(--blue);
+      color: #fff;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    .nav-links a:hover { color: var(--blue-dark); }
+
+    .button {
+      min-height: 46px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 18px;
+      border: 1px solid var(--blue);
+      border-radius: 8px;
+      background: var(--blue);
+      color: #fff;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .button.secondary {
+      background: #fff;
+      color: var(--blue-dark);
+      border-color: var(--line-strong);
+    }
+
+    .hero {
+      padding: clamp(54px, 7vw, 92px) 0 56px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(420px, 0.82fr);
+      gap: clamp(40px, 7vw, 92px);
+      align-items: center;
+    }
+
+    .hero-grid > *,
+    .workflow > *,
+    .cta-grid > * {
+      min-width: 0;
+    }
+
+    .eyebrow {
+      width: fit-content;
+      margin: 0 0 18px;
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      color: var(--blue-dark);
+      background: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      max-width: 650px;
+      margin-bottom: 20px;
+      font-size: clamp(40px, 5vw, 64px);
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 620px;
+      margin-bottom: 28px;
+      color: #3f4b5b;
+      font-size: 20px;
+      line-height: 1.65;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .trust-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      max-width: 620px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .trust-row span {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .product-panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcff;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      display: inline-block;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .mail-card,
+    .record-card,
+    .reply-card {
+      margin: 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .mail-head,
+    .record-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .mail-head span,
+    .record-head span,
+    .attachment span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .mail-body,
+    .record-body,
+    .reply-card {
+      padding: 16px;
+    }
+
+    .subject {
+      margin-bottom: 10px;
+      color: var(--ink);
+      font-weight: 760;
+    }
+
+    .attachment {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--soft);
+      color: var(--ink);
+      font-size: 14px;
+    }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tag {
+      padding: 6px 9px;
+      border-radius: 999px;
+      background: #eef4ff;
+      color: var(--blue-dark);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .reply-card {
+      background: #f8fbff;
+    }
+
+    .reply-card strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--blue-dark);
+    }
+
+    .section {
+      padding: 72px 0;
+      border-bottom: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .section.alt { background: #f8fafc; }
+
+    .section-head {
+      max-width: 720px;
+      margin-bottom: 30px;
+    }
+
+    .section-kicker {
+      margin-bottom: 9px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin-bottom: 12px;
+      font-size: clamp(30px, 4vw, 44px);
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    .section-lead {
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    .card h3 {
+      margin-bottom: 9px;
+      font-size: 19px;
+    }
+
+    .card p {
+      margin-bottom: 0;
+      color: var(--muted);
+    }
+
+    .workflow {
+      display: grid;
+      grid-template-columns: minmax(0, 0.82fr) minmax(0, 1fr);
+      gap: 24px;
+      align-items: start;
+    }
+
+    .step-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 14px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    .step-number {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      background: #eef4ff;
+      color: var(--blue);
+      font-weight: 850;
+    }
+
+    .note {
+      padding: 22px;
+      border: 1px solid #ead8bd;
+      border-radius: 12px;
+      background: #fff9ef;
+      color: #3e2f1d;
+    }
+
+    .note strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--amber);
+    }
+
+    .cta {
+      padding: 76px 0;
+      background: var(--blue-dark);
+      color: #fff;
+    }
+
+    .cta-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .cta p {
+      max-width: 640px;
+      margin-bottom: 0;
+      color: #d8e3f7;
+      font-size: 18px;
+    }
+
+    .cta .button {
+      border-color: #fff;
+      background: #fff;
+      color: var(--blue-dark);
+    }
+
+    footer {
+      padding: 26px 0;
+      background: #0f172a;
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+
+    footer .wrap {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    footer a { text-decoration: underline; }
+
+    @media (max-width: 900px) {
+      .hero-grid,
+      .workflow,
+      .cta-grid,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+
+      .nav-links { display: none; }
+
+      nav .button { display: none; }
+
+      .hero { padding-top: 38px; }
+
+      .trust-row { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .wrap {
+        width: min(340px, calc(100% - 28px));
+        margin-left: 14px;
+        margin-right: auto;
+      }
+      nav { min-height: 64px; }
+      h1 {
+        max-width: 100%;
+        font-size: 36px;
+      }
+      .lead {
+        max-width: 100%;
+        font-size: 18px;
+      }
+      .product-panel {
+        width: 100%;
+        max-width: 100%;
+      }
+      .mail-head,
+      .record-head {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 4px;
+      }
+      .button { width: 100%; }
+      .mail-card, .record-card, .reply-card { margin: 12px; }
+      .panel-top { padding: 14px; }
+    }
+  </style>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -47,79 +541,150 @@
         "url": "https://bewaarhet.nl/",
         "provider": {"@id": "https://bewaarhet.nl/#organization"},
         "areaServed": "NL",
-        "description": "Bewaarhet helpt je bonnetjes, facturen en documenten via e-mail te bewaren en later terug te vinden."
+        "description": "Bewaarhet helpt ondernemers documenten, bonnetjes en facturen via e-mail te bewaren en later terug te vinden."
       }
     ]
   }
   </script>
 </head>
-<body class="home-page">
+<body>
   <a class="skip-link" href="#inhoud">Ga naar inhoud</a>
+
   <header>
     <nav class="wrap" aria-label="Hoofdnavigatie">
-      <a class="brand" href="/"><img class="brand-logo" src="/bewaarhet-logo-glow.png?v=20260522-cosmic" alt="Bewaarhet" width="936" height="530"></a>
+      <a class="brand" href="/" aria-label="Bewaarhet home"><span class="brand-mark">B</span><span>Bewaarhet</span></a>
       <div class="nav-links">
-        <a href="#demo">Demo</a>
-        <a href="#demo">Zo werkt het</a>
+        <a href="#werking">Werking</a>
         <a href="#vertrouwen">Vertrouwen</a>
+        <a href="#start">Starten</a>
       </div>
-      <a class="button" href="mailto:service@bewaarhet.nl">Probeer gratis</a>
+      <a class="button" href="mailto:service@bewaarhet.nl?subject=Bewaarhet%20toegang">Vraag toegang aan</a>
     </nav>
   </header>
 
   <main id="inhoud">
     <section class="hero">
       <div class="wrap hero-grid">
-        <div class="hero-copy">
-          <h1>Mail wat je anders kwijtraakt.<br>Vind terug wat je later nodig hebt.</h1>
-          <p class="lead">Mail je documenten naar Bewaarhet.<br>Wij bewaren en organiseren ze automatisch,<br>zodat jij ze nooit meer kwijtraakt.</p>
-          <p class="seo-copy">Stuur je bonnetjes, facturen en documenten naar Bewaarhet. Administratie bewaren via e-mail met Bewaarhet: documenten bewaren, bonnetjes bewaren, facturen bewaren en later terugvinden.</p>
+        <div>
+          <p class="eyebrow">Documenten bewaren via e-mail</p>
+          <h1>Een vaste plek voor documenten die anders verdwijnen.</h1>
+          <p class="lead">Mail bonnetjes, facturen, contracten en losse bijlagen naar Bewaarhet. Wij registreren wat het is, bewaren het overzichtelijk en sturen het terug wanneer je erom vraagt.</p>
           <div class="actions">
-            <a class="button" href="mailto:service@bewaarhet.nl">Probeer gratis</a>
-            <a class="button secondary play" href="/hoe-werkt-bewaarhet/">Zo werkt het</a>
+            <a class="button" href="mailto:service@bewaarhet.nl?subject=Bewaarhet%20toegang">Vraag toegang aan</a>
+            <a class="button secondary" href="#werking">Bekijk hoe het werkt</a>
+          </div>
+          <div class="trust-row" aria-label="Kernpunten">
+            <span>Geen nieuw portaal nodig</span>
+            <span>Terugvinden via e-mail</span>
+            <span>Voor losse zakelijke documenten</span>
           </div>
         </div>
 
-        <aside class="magic-inbox" aria-label="Magische digitale inbox waarin documenten veilig worden bewaard">
-          <img src="/magic-inbox-hero-blend-v2.png" alt="" width="1334" height="929" loading="eager" decoding="async">
+        <aside class="product-panel" aria-label="Voorbeeld van Bewaarhet in gebruik">
+          <div class="panel-top"><span><i class="status-dot"></i>Document ontvangen</span><span>09:15</span></div>
+          <div class="mail-card">
+            <div class="mail-head"><span>Van: jij</span><span>Aan: service@bewaarhet.nl</span></div>
+            <div class="mail-body">
+              <div class="subject">Bon Gamma voor garantie</div>
+              <div class="attachment"><span>Bon-Gamma.pdf</span><strong>248 KB</strong></div>
+            </div>
+          </div>
+          <div class="record-card">
+            <div class="record-head"><span>Bewaarhet registratie</span><span>klaar</span></div>
+            <div class="record-body">
+              <div class="subject">Bon Gamma.pdf</div>
+              <div class="tag-list">
+                <span class="tag">Bon</span>
+                <span class="tag">Garantie</span>
+                <span class="tag">Gamma</span>
+                <span class="tag">PDF</span>
+              </div>
+            </div>
+          </div>
+          <div class="reply-card">
+            <strong>Zoekmail later</strong>
+            <span>“Stuur de bon van Gamma” en Bewaarhet stuurt het document terug per e-mail.</span>
+          </div>
         </aside>
       </div>
-
     </section>
 
-    <section class="organize-preview demo-section" id="demo" aria-label="Bewaarhet van chaos naar rust">
+    <section class="section" id="werking">
       <div class="wrap">
-        <figure class="infographic-showcase">
-          <img src="/infographic.png" alt="Infographic: documentchaos, automatische herkenning door Bewaarhet en later per e-mail terugvinden." width="1536" height="1024" loading="eager" decoding="async">
-        </figure>
-      </div>
-    </section>
-
-
-    <section id="vertrouwen" class="compact-trust">
-      <div class="wrap">
-        <h2>Rustig geregeld.</h2>
-        <div class="trust-lines" aria-label="Wat Bewaarhet rustig houdt">
-          <span>Geen app nodig</span>
-          <span>Eerst bevestigen, dan bewaren</span>
-          <span>Je krijgt documenten terug per mail</span>
+        <div class="section-head">
+          <p class="section-kicker">Werking</p>
+          <h2>Bewaarhet sluit aan op wat je al doet: mailen.</h2>
+          <p class="section-lead">Het product is bewust klein gehouden. Geen dashboard dat je dagelijks moet openen, maar een vaste route voor documenten die je later nodig hebt.</p>
+        </div>
+        <div class="grid-3">
+          <article class="card">
+            <h3>1. Doorsturen</h3>
+            <p>Je mailt een document of bijlage naar Bewaarhet. Bijvoorbeeld een bon, factuur, contract, garantiebewijs of scan.</p>
+          </article>
+          <article class="card">
+            <h3>2. Registreren</h3>
+            <p>Bewaarhet legt bestandsnaam, afzender, datum en herkenbare inhoud vast. Waar nodig blijft de registratie sober en controleerbaar.</p>
+          </article>
+          <article class="card">
+            <h3>3. Terugvragen</h3>
+            <p>Later mail je wat je zoekt. Bewaarhet zoekt in je bewaarde documenten en stuurt de beste match terug.</p>
+          </article>
         </div>
       </div>
     </section>
 
-    <section class="cta">
+    <section class="section alt" id="vertrouwen">
+      <div class="wrap workflow">
+        <div>
+          <p class="section-kicker">Vertrouwen</p>
+          <h2>Serieus genoeg voor administratie. Simpel genoeg voor elke week.</h2>
+          <p class="section-lead">Bewaarhet is bedoeld voor ondernemers die geen extra systeem zoeken, maar wel een betrouwbaardere plek willen voor losse documenten.</p>
+        </div>
+        <div class="step-list">
+          <div class="step"><span class="step-number">01</span><div><h3>Geen magie als productbelofte</h3><p>Documentherkenning helpt bij ordenen en zoeken, maar de kern blijft: veilig bewaren, duidelijk loggen en terugsturen op verzoek.</p></div></div>
+          <div class="step"><span class="step-number">02</span><div><h3>Rustige verwerking</h3><p>Bewaarhet bevestigt wat is ontvangen en houdt documenten bij elkaar, zonder dat jij mappen hoeft te onderhouden.</p></div></div>
+          <div class="step"><span class="step-number">03</span><div><h3>Gemaakt voor terugvinden</h3><p>Niet elk document verdient een boekhoudproces. Sommige stukken wil je vooral snel kunnen terughalen.</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
       <div class="wrap">
-        <h2><span>Mail wat je niet kwijt wilt raken.</span><br><span>Vind het later gewoon terug.</span></h2>
-        <p class="lead">Begin met een e-mail. Bewaarhet bewaart het op een plek waar je later weer bij kunt.</p>
-        <div class="actions"><a class="button" href="mailto:service@bewaarhet.nl">Probeer gratis</a></div>
-        <p class="trial-note">3 maanden gratis proberen.</p>
+        <div class="section-head">
+          <p class="section-kicker">Gebruik</p>
+          <h2>Voor documenten die tussen inbox, downloads en losse mappen blijven hangen.</h2>
+        </div>
+        <div class="grid-3">
+          <article class="card"><h3>Bonnetjes en garanties</h3><p>Voor aankopen waarvan je later aankoopbewijs, serienummer of garantie wilt terugvinden.</p></article>
+          <article class="card"><h3>Facturen en bevestigingen</h3><p>Voor leveranciersmails en PDF’s die je niet kwijt wilt, maar ook niet elke dag nodig hebt.</p></article>
+          <article class="card"><h3>Contracten en scans</h3><p>Voor losse documenten die te belangrijk zijn om alleen in downloads of chatbijlagen te laten staan.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="wrap">
+        <div class="note">
+          <strong>Bewaarhet is geen boekhoudpakket.</strong>
+          Het vervangt je accountant, boekhoudsoftware of juridische dossier niet. Het is een praktische bewaar- en terugvindlaag voor documenten die anders versnipperd raken.
+        </div>
+      </div>
+    </section>
+
+    <section class="cta" id="start">
+      <div class="wrap cta-grid">
+        <div>
+          <h2>Begin met één documentstroom.</h2>
+          <p>Stuur een korte mail en vertel welke documenten je vooral wilt bewaren. Dan kijken we of Bewaarhet past bij jouw manier van werken.</p>
+        </div>
+        <a class="button" href="mailto:service@bewaarhet.nl?subject=Bewaarhet%20toegang&body=Hallo%20Bewaarhet,%0D%0A%0D%0AIk%20wil%20vooral%20deze%20documenten%20beter%20bewaren:%0D%0A">Vraag toegang aan</a>
       </div>
     </section>
   </main>
 
   <footer>
     <div class="wrap">
-      <span>Bewaarhet - mail je documenten, vind ze later terug.</span>
+      <span>Bewaarhet - documenten bewaren via e-mail.</span>
       <span><a href="/robots.txt">robots.txt</a> | <a href="/sitemap.xml">sitemap</a></span>
     </div>
   </footer>
